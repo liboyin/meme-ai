@@ -1,0 +1,19 @@
+body { margin: 0; font-family: sans-serif; }
+.layout { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+.sidebar { padding: 16px; border-right: 1px solid #ddd; display:flex; flex-direction:column; gap:10px; }
+.dropzone { border: 1px dashed #aaa; padding: 12px; cursor: pointer; }
+.dropzone input { display:none; }
+.progress { background:#eee; height:10px; }
+.progress div { background:#1f7; height:100%; }
+.grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding: 12px; }
+.card { border:1px solid #ddd; padding:8px; text-align:left; background:#fff; }
+.card img { width:100%; aspect-ratio:1; object-fit:cover; }
+.status { font-size: 12px; text-transform: uppercase; }
+.status.done { color: green; }
+.status.pending { color: orange; }
+.status.error { color: red; }
+.pager { padding: 12px; display:flex; gap:8px; }
+.modal { position:fixed; inset:0; background: rgba(0,0,0,0.5); display:grid; place-items:center; }
+.modalContent { background:#fff; max-width:700px; max-height:90vh; overflow:auto; padding:16px; }
+.modalContent img { width:100%; }
+.error { color: red; }

@@ -1,0 +1,9 @@
+.git
+.gitignore
+__pycache__
+.pytest_cache
+node_modules
+frontend/node_modules
+.venv
+dist
+memes.db
