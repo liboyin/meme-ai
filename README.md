@@ -2,7 +2,7 @@
 
 Full-stack local-first meme manager built with FastAPI + React (Vite) + SQLite.
 
-## Setup
+## Setup (without Docker)
 
 1. Copy env file:
 
@@ -28,6 +28,29 @@ npm run dev
 ```
 
 Frontend calls `/api/...` and Vite proxies to backend.
+
+## Docker
+
+Run the full stack with Docker Compose:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+- Backend: `http://localhost:8000`
+- Frontend: `http://localhost:5173`
+- SQLite DB persists in Docker volume `meme_data` at `/data/memes.db` inside backend container.
+
+## VS Code Dev Container
+
+This repo includes a dev container config in `.devcontainer/`.
+
+1. Install the **Dev Containers** extension in VS Code.
+2. Open this repo.
+3. Run **Dev Containers: Reopen in Container**.
+
+The container installs Python 3.11 + Node.js 20, forwards ports `8000` and `5173`, and runs dependency installation after create.
 
 ## Tests and linting
 
