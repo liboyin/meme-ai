@@ -50,7 +50,7 @@ This repo includes a dev container config in `.devcontainer/`.
 2. Open this repo.
 3. Run **Dev Containers: Reopen in Container**.
 
-The container installs Python 3.11 + Node.js 20, forwards ports `8000` and `5173`, and runs dependency installation after create.
+The container installs Python 3.13 + Node.js 24, forwards ports `8000` and `5173`, and runs dependency installation after create.
 
 ## Tests and linting
 

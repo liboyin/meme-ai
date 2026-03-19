@@ -1,7 +1,7 @@
-FROM mcr.microsoft.com/devcontainers/python:1-3.11-bullseye
+FROM mcr.microsoft.com/devcontainers/python:3.13-bookworm
 
 RUN rm -f /etc/apt/sources.list.d/yarn.list /usr/share/keyrings/yarn-archive-keyring.gpg \
-    && su vscode -c "curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -" \
+    && su vscode -c "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -" \
     && apt-get update \
     && apt-get install -y nodejs \
     && apt-get clean \
