@@ -49,4 +49,4 @@ class UploadOut(BaseModel):
 
 class LlmSearchRequest(BaseModel):
     query: str
-    top_n: int = 20
+    top_n: int = Field(default=20, ge=1, le=100)

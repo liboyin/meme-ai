@@ -1,6 +1,8 @@
 import asyncio
 import hashlib
-import imghdr
+import logging
+import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -17,12 +19,17 @@ from .llm import LLMUnavailableError, analyze_image, llm_rank
 from .repository import MemeRepository
 from .schemas import LlmSearchRequest
 
-MAX_FILE_BYTES = 1_500_000
-ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp"}
-ALLOWED_IMGHDR = {"png", "jpeg", "webp"}
+logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Meme Organiser")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+MAX_FILE_BYTES = 1_500_000
+ALLOWED_MIME = {
+    "PNG": "image/png",
+    "JPEG": "image/jpeg",
+    "WEBP": "image/webp",
+}
+RECENT_STATUS_WINDOW_SECONDS = 180
+
+recent_statuses: dict[int, tuple[str, float]] = {}
 
 
 def get_db():
@@ -31,6 +38,72 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def remember_status(meme_id: int, status: str) -> None:
+    recent_statuses[meme_id] = (status, time.time())
+
+
+def recent_status_snapshot(pending_items: list[dict]) -> list[dict]:
+    now = time.time()
+    items_by_id = {item["id"]: item for item in pending_items}
+
+    expired_ids = [
+        meme_id
+        for meme_id, (_, updated_at) in recent_statuses.items()
+        if now - updated_at > RECENT_STATUS_WINDOW_SECONDS
+    ]
+    for meme_id in expired_ids:
+        recent_statuses.pop(meme_id, None)
+
+    for meme_id, (status, _updated_at) in recent_statuses.items():
+        items_by_id[meme_id] = {"id": meme_id, "analysis_status": status}
+
+    return list(sorted(items_by_id.values(), key=lambda item: item["id"], reverse=True))
+
+
+def llm_unavailable_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": {
+                "code": "llm_unavailable",
+                "message": "LLM features are unavailable because OPENAI_API_KEY is not configured.",
+            }
+        },
+    )
+
+
+def validate_image_bytes(*, filename: str | None, mime_type: str | None, data: bytes) -> str:
+    if len(data) > MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large: {filename or 'upload'}")
+
+    try:
+        with Image.open(BytesIO(data)) as image:
+            detected_format = image.format
+            image.verify()
+    except UnidentifiedImageError as exc:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type: {filename or 'upload'}") from exc
+
+    try:
+        with Image.open(BytesIO(data)) as image:
+            frame_count = getattr(image, "n_frames", 1)
+            is_animated = bool(getattr(image, "is_animated", False) or frame_count > 1)
+    except UnidentifiedImageError as exc:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type: {filename or 'upload'}") from exc
+
+    if detected_format not in ALLOWED_MIME:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type: {filename or 'upload'}")
+    if is_animated:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Animated images are not supported: {filename or 'upload'}",
+        )
+
+    expected_mime_type = ALLOWED_MIME[detected_format]
+    if mime_type and mime_type != expected_mime_type:
+        raise HTTPException(status_code=415, detail=f"Unsupported file type: {filename or 'upload'}")
+    return expected_mime_type
 
 
 async def analyze_and_store(meme_id: int):
@@ -42,19 +115,22 @@ async def analyze_and_store(meme_id: int):
         return
     if not settings.openai_api_key:
         repo.set_error(meme_id, "LLM features are unavailable because OPENAI_API_KEY is not configured.")
+        remember_status(meme_id, "error")
         db.close()
         return
     try:
         payload = await analyze_image(meme.image_data, meme.mime_type)
         repo.update_analysis(meme_id, payload, "done")
+        remember_status(meme_id, "done")
     except Exception as exc:
+        logger.exception("Meme analysis failed for meme_id=%s", meme_id)
         repo.set_error(meme_id, str(exc))
+        remember_status(meme_id, "error")
     finally:
         db.close()
 
 
-@app.on_event("startup")
-async def startup_event():
+async def resume_pending_analysis() -> None:
     init_db()
     db = SessionLocal()
     repo = MemeRepository(db)
@@ -63,40 +139,47 @@ async def startup_event():
     db.close()
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await resume_pending_analysis()
+    yield
+
+
+app = FastAPI(title="Meme Organiser", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
 @app.post("/api/memes/upload")
 async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
     if len(files) > 50:
         raise HTTPException(status_code=413, detail="Maximum 50 files per request")
+
     repo = MemeRepository(db)
     items = []
+    single_file_request = len(files) == 1
     for file in files:
         try:
-            if file.content_type not in ALLOWED_MIME:
-                raise HTTPException(status_code=415, detail=f"Unsupported file type: {file.content_type}")
             data = await file.read()
-            if len(data) > MAX_FILE_BYTES:
-                raise HTTPException(status_code=413, detail=f"File too large: {file.filename}")
-            kind = imghdr.what(None, data)
-            if kind not in ALLOWED_IMGHDR:
-                raise HTTPException(status_code=415, detail=f"Unsupported file type: {file.filename}")
-            with Image.open(BytesIO(data)) as img:
-                img.verify()
-                if getattr(img, "is_animated", False):
-                    raise HTTPException(status_code=415, detail=f"Animated images are not supported: {file.filename}")
-            meme = repo.create_meme(
+            detected_mime_type = validate_image_bytes(
                 filename=file.filename,
                 mime_type=file.content_type,
+                data=data,
+            )
+            meme = repo.create_meme(
+                filename=file.filename,
+                mime_type=detected_mime_type,
                 sha256=hashlib.sha256(data).hexdigest(),
                 image_data=data,
                 uploaded_at=datetime.now(timezone.utc).isoformat(),
                 analysis_status="pending",
             )
+            remember_status(meme.id, "pending")
             background_tasks.add_task(analyze_and_store, meme.id)
             items.append({"filename": file.filename, "status": "created", "id": meme.id})
         except HTTPException as exc:
+            if single_file_request:
+                raise exc
             items.append({"filename": file.filename, "status": "error", "error": exc.detail})
-        except UnidentifiedImageError:
-            items.append({"filename": file.filename, "status": "error", "error": "Invalid image"})
     return {"items": items}
 
 
@@ -110,7 +193,8 @@ def list_memes(page: int = 1, page_size: int = 40, db: Session = Depends(get_db)
 
 @app.get("/api/memes/pending")
 def pending(db: Session = Depends(get_db)):
-    return {"items": MemeRepository(db).pending_statuses()}
+    pending_items = MemeRepository(db).pending_statuses()
+    return {"items": recent_status_snapshot(pending_items)}
 
 
 @app.get("/api/memes/{meme_id}/image")
@@ -147,17 +231,11 @@ def fuzzy_search(q: str, mode: str = "fuzzy", db: Session = Depends(get_db)):
 @app.post("/api/search/llm")
 async def ai_search(body: LlmSearchRequest, db: Session = Depends(get_db)):
     if not settings.openai_api_key:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": {
-                    "code": "llm_unavailable",
-                    "message": "LLM features are unavailable because OPENAI_API_KEY is not configured.",
-                }
-            },
-        )
+        return llm_unavailable_response()
     repo = MemeRepository(db)
     short = repo.search_fts(body.query, limit=200)
+    if not short:
+        return {"items": []}
     ranked = await llm_rank(body.query, short)
     by_id = {m["id"]: m for m in short}
     out = []
@@ -171,8 +249,4 @@ async def ai_search(body: LlmSearchRequest, db: Session = Depends(get_db)):
 
 @app.exception_handler(LLMUnavailableError)
 async def llm_unavailable_handler(_request, _exc):
-    return Response(
-        status_code=503,
-        media_type="application/json",
-        content='{"error":{"code":"llm_unavailable","message":"LLM features are unavailable because OPENAI_API_KEY is not configured."}}',
-    )
+    return llm_unavailable_response()

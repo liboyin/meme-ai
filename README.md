@@ -1,72 +1,77 @@
 # Meme Organiser
 
-Full-stack local-first meme manager built with FastAPI + React (Vite) + SQLite.
+Meme Organiser is a local-first meme library built with FastAPI, React, Vite, and SQLite. Images are stored directly in SQLite as BLOBs, fuzzy search runs fully offline, and AI search only needs network access for the configured OpenAI-compatible multimodal provider.
 
-## Setup (without Docker)
+## Setup
 
-1. Copy env file:
+1. Copy the env template:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Backend install/run:
+2. Install backend dependencies:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn backend.main:app --reload
 ```
 
-3. Frontend install/run:
+3. Install frontend dependencies:
 
 ```bash
 cd frontend
 npm install
+cd ..
+```
+
+## Run The App
+
+Start the FastAPI server from the repo root:
+
+```bash
+source .venv/bin/activate
+uvicorn backend.main:app --reload
+```
+
+In a second terminal, start the Vite frontend:
+
+```bash
+cd frontend
 npm run dev
 ```
 
-Frontend calls `/api/...` and Vite proxies to backend.
+The frontend uses the Vite proxy, so the browser talks to `/api/...` directly during development.
 
-## Docker
+## Tests And Linting
 
-Run the full stack with Docker Compose:
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-- Backend: `http://localhost:8000`
-- Frontend: `http://localhost:5173`
-- SQLite DB persists in Docker volume `meme_data` at `/data/memes.db` inside backend container.
-
-## VS Code Dev Container
-
-This repo includes a dev container config in `.devcontainer/`.
-
-1. Install the **Dev Containers** extension in VS Code.
-2. Open this repo.
-3. Run **Dev Containers: Reopen in Container**.
-
-The container installs Python 3.13 + Node.js 24, forwards ports `8000` and `5173`, and runs dependency installation after create.
-
-## Tests and linting
+Backend:
 
 ```bash
-pytest backend/tests
-ruff check backend
-cd frontend && npm run test
-cd frontend && npm run lint
+source .venv/bin/activate
+cd backend
+pytest
+cd ..
+.venv/bin/ruff check backend
 ```
 
-## Search modes
+Frontend:
 
-- **Fuzzy search** (`GET /api/search`): SQLite FTS5 BM25 ranking over filename + LLM fields.
-- **AI search** (`POST /api/search/llm`): runs fuzzy shortlist then LLM reranking in batches of 15.
+```bash
+cd frontend
+npm run test
+npm run lint
+```
+
+## Search Modes
+
+Fuzzy search uses SQLite FTS5 with BM25 ranking. It is fast, local, and great when the text you type overlaps with filenames, descriptions, references, use cases, or tags.
+
+AI search first gathers a fuzzy shortlist, then asks the configured multimodal LLM to score those candidates in chunks of 15. It is slower, but it helps when the best meme is semantically related even if the wording does not match.
 
 ## Notes
 
-- Uploaded images are stored as SQLite BLOBs.
-- If `OPENAI_API_KEY` is missing, app still runs, uploads succeed, and LLM-dependent endpoints return 503.
+- If `OPENAI_API_KEY` is missing, the backend still starts, uploads still work, and LLM-dependent features return a `503` response with the required `llm_unavailable` body.
+- Pending meme analysis is resumed on backend startup.
+- Two sample memes are included under `assets/` for quick manual testing.

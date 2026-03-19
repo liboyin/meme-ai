@@ -1,10 +1,13 @@
 import json
+import re
 from typing import Iterable
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .models import Meme
+
+FTS_TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
 
 
 class MemeRepository:
@@ -39,7 +42,7 @@ class MemeRepository:
         return self.db.get(Meme, meme_id)
 
     def list_memes(self, page: int, page_size: int) -> tuple[list[dict], int]:
-        q = self.db.query(Meme).order_by(Meme.id.desc())
+        q = self.db.query(Meme).order_by(Meme.uploaded_at.desc(), Meme.id.desc())
         total = q.count()
         items = q.offset((page - 1) * page_size).limit(page_size).all()
         return [self._to_dict(x) for x in items], total
@@ -47,9 +50,8 @@ class MemeRepository:
     def pending_statuses(self) -> list[dict]:
         rows = (
             self.db.query(Meme.id, Meme.analysis_status)
-            .filter(Meme.analysis_status.in_(["pending", "done", "error"]))
+            .filter(Meme.analysis_status == "pending")
             .order_by(Meme.id.desc())
-            .limit(500)
             .all()
         )
         return [{"id": r.id, "analysis_status": r.analysis_status} for r in rows]
@@ -82,10 +84,35 @@ class MemeRepository:
         self.db.commit()
         return True
 
+    @staticmethod
+    def _build_fts_query(query: str) -> str:
+        tokens: list[str] = []
+        seen: set[str] = set()
+        for token in FTS_TOKEN_PATTERN.findall(query.lower()):
+            if token not in seen:
+                seen.add(token)
+                tokens.append(f"{token}*")
+        return " OR ".join(tokens)
+
     def search_fts(self, query: str, limit: int = 20) -> list[dict]:
+        fts_query = self._build_fts_query(query)
+        if not fts_query:
+            return []
+
         sql = text(
             """
-            SELECT m.id, m.filename, m.description, m.why_funny, m.references, m.use_cases, m.tags,
+            SELECT
+                   m.id,
+                   m.filename,
+                   m.mime_type,
+                   m.uploaded_at,
+                   m.description,
+                   m.why_funny,
+                   m."references" AS references_text,
+                   m.use_cases,
+                   m.tags,
+                   m.analysis_status,
+                   m.analysis_error,
                    bm25(memes_fts) AS score
             FROM memes_fts
             JOIN memes m ON m.id = memes_fts.rowid
@@ -94,19 +121,25 @@ class MemeRepository:
             LIMIT :limit
             """
         )
-        rows = self.db.execute(sql, {"q": query, "limit": limit}).mappings().all()
+        rows = self.db.execute(sql, {"q": fts_query, "limit": limit}).mappings().all()
         out = []
         for r in rows:
-            out.append({
-                "id": r["id"],
-                "filename": r["filename"],
-                "description": r["description"],
-                "why_funny": r["why_funny"],
-                "references": r["references"],
-                "use_cases": r["use_cases"],
-                "tags": json.loads(r["tags"] or "[]"),
-                "rank": r["score"],
-            })
+            out.append(
+                {
+                    "id": r["id"],
+                    "filename": r["filename"],
+                    "mime_type": r["mime_type"],
+                    "uploaded_at": r["uploaded_at"],
+                    "description": r["description"],
+                    "why_funny": r["why_funny"],
+                    "references": r["references_text"],
+                    "use_cases": r["use_cases"],
+                    "tags": json.loads(r["tags"] or "[]"),
+                    "analysis_status": r["analysis_status"],
+                    "analysis_error": r["analysis_error"],
+                    "rank": r["score"],
+                }
+            )
         return out
 
     def get_for_llm(self, ids: Iterable[int]) -> list[dict]:
