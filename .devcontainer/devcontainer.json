@@ -5,6 +5,7 @@
   },
   "remoteUser": "vscode",
   "forwardPorts": [8000, 5173],
+  "postCreateCommand": "chmod +x .devcontainer/postCreateCommand.sh && ./.devcontainer/postCreateCommand.sh",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -24,6 +25,5 @@
         "yzhang.markdown-all-in-one"
       ]
     }
-  },
-  "postCreateCommand": "python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && cd frontend && npm install"
+  }
 }
