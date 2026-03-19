@@ -1,7 +1,10 @@
 __pycache__/
 .pytest_cache/
+.ruff_cache/
 .venv/
+.coverage
 node_modules/
 dist/
+coverage/
 memes.db
 .env
