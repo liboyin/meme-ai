@@ -56,13 +56,18 @@ cd ..
 .venv/bin/ruff check backend
 ```
 
+Backend coverage is enforced by `pytest` and fails below 85%.
+
 Frontend:
 
 ```bash
 cd frontend
 npm run test
+npm run test:coverage
 npm run lint
 ```
+
+Frontend coverage is enforced by `npm run test:coverage` and fails below the configured thresholds.
 
 ## Search Modes
 
