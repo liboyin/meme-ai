@@ -1,6 +1,7 @@
 import json
 import re
-from typing import Iterable
+from collections.abc import Mapping
+from typing import Any, Iterable
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -15,21 +16,47 @@ class MemeRepository:
         self.db = db
 
     @staticmethod
-    def _to_dict(meme: Meme) -> dict:
-        return {
-            "id": meme.id,
-            "filename": meme.filename,
-            "mime_type": meme.mime_type,
-            "sha256": meme.sha256,
-            "uploaded_at": meme.uploaded_at,
-            "description": meme.description,
-            "why_funny": meme.why_funny,
-            "references": meme.references,
-            "use_cases": meme.use_cases,
-            "tags": json.loads(meme.tags or "[]"),
-            "analysis_status": meme.analysis_status,
-            "analysis_error": meme.analysis_error,
+    def _safe_parse_tags(tags: Any) -> list[Any]:
+        if isinstance(tags, list):
+            return tags
+        if not tags:
+            return []
+        if not isinstance(tags, str):
+            return []
+        try:
+            parsed = json.loads(tags)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    @classmethod
+    def _api_payload(cls, meme: Meme | Mapping[str, Any], *, include_rank: bool = False) -> dict:
+        def get(field: str) -> Any:
+            if isinstance(meme, Mapping):
+                return meme.get(field)
+            return getattr(meme, field, None)
+
+        payload = {
+            "id": get("id"),
+            "filename": get("filename"),
+            "mime_type": get("mime_type"),
+            "sha256": get("sha256"),
+            "uploaded_at": get("uploaded_at"),
+            "description": get("description"),
+            "why_funny": get("why_funny"),
+            "references": get("references"),
+            "use_cases": get("use_cases"),
+            "tags": cls._safe_parse_tags(get("tags")),
+            "analysis_status": get("analysis_status"),
+            "analysis_error": get("analysis_error"),
         }
+        if include_rank:
+            payload["rank"] = get("score")
+        return payload
+
+    @staticmethod
+    def _to_dict(meme: Meme) -> dict:
+        return MemeRepository._api_payload(meme)
 
     def create_meme(self, **kwargs) -> Meme:
         meme = Meme(**kwargs)
@@ -45,7 +72,7 @@ class MemeRepository:
         q = self.db.query(Meme).order_by(Meme.uploaded_at.desc(), Meme.id.desc())
         total = q.count()
         items = q.offset((page - 1) * page_size).limit(page_size).all()
-        return [self._to_dict(x) for x in items], total
+        return [self._api_payload(x) for x in items], total
 
     def pending_statuses(self) -> list[dict]:
         rows = (
@@ -108,7 +135,7 @@ class MemeRepository:
                    m.uploaded_at,
                    m.description,
                    m.why_funny,
-                   m."references" AS references_text,
+                   m."references" AS "references",
                    m.use_cases,
                    m.tags,
                    m.analysis_status,
@@ -122,29 +149,11 @@ class MemeRepository:
             """
         )
         rows = self.db.execute(sql, {"q": fts_query, "limit": limit}).mappings().all()
-        out = []
-        for r in rows:
-            out.append(
-                {
-                    "id": r["id"],
-                    "filename": r["filename"],
-                    "mime_type": r["mime_type"],
-                    "uploaded_at": r["uploaded_at"],
-                    "description": r["description"],
-                    "why_funny": r["why_funny"],
-                    "references": r["references_text"],
-                    "use_cases": r["use_cases"],
-                    "tags": json.loads(r["tags"] or "[]"),
-                    "analysis_status": r["analysis_status"],
-                    "analysis_error": r["analysis_error"],
-                    "rank": r["score"],
-                }
-            )
-        return out
+        return [self._api_payload(r, include_rank=True) for r in rows]
 
     def get_for_llm(self, ids: Iterable[int]) -> list[dict]:
         rows = self.db.query(Meme).filter(Meme.id.in_(list(ids))).all()
-        return [self._to_dict(x) for x in rows]
+        return [self._api_payload(x) for x in rows]
 
     def pending_ids(self) -> list[int]:
         rows = self.db.query(Meme.id).filter(Meme.analysis_status == "pending").all()

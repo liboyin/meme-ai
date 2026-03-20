@@ -204,9 +204,25 @@ def test_repository_edge_cases(monkeypatch, tmp_path):
 
     llm_items = repo.get_for_llm([created.id])
     assert llm_items[0]["filename"] == "done.png"
+    assert llm_items[0]["references"] == "internet culture"
 
     pending_items = repo.pending_statuses()
     assert pending_items == [{"id": created.id + 1, "analysis_status": "pending"}]
+
+    listed_items, total = repo.list_memes(page=1, page_size=10)
+    assert total == 2
+    assert listed_items[0]["id"] == created.id + 1
+    assert listed_items[1].keys() == llm_items[0].keys()
+    assert listed_items[1]["references"] == "internet culture"
+
+    fts_item = repo.search_fts("wow", limit=1)[0]
+    assert set(fts_item.keys()) == set(llm_items[0].keys()) | {"rank"}
+    assert fts_item["references"] == "internet culture"
+    assert isinstance(fts_item["tags"], list)
+
+    assert repo._safe_parse_tags("not-json") == []
+    assert repo._safe_parse_tags('{"oops": true}') == []
+    assert repo._safe_parse_tags(["x"]) == ["x"]
     db.close()
 
 
