@@ -15,6 +15,22 @@ class MemeRepository:
         self.db = db
 
     @staticmethod
+    def _parse_tags(raw_tags: str | None) -> list[str]:
+        try:
+            decoded = json.loads(raw_tags or "[]")
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(decoded, list):
+            return []
+        return [str(tag) for tag in decoded]
+
+    @staticmethod
+    def _normalize_tags(value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(tag) for tag in value]
+
+    @staticmethod
     def _to_dict(meme: Meme) -> dict:
         return {
             "id": meme.id,
@@ -26,7 +42,7 @@ class MemeRepository:
             "why_funny": meme.why_funny,
             "references": meme.references,
             "use_cases": meme.use_cases,
-            "tags": json.loads(meme.tags or "[]"),
+            "tags": MemeRepository._parse_tags(meme.tags),
             "analysis_status": meme.analysis_status,
             "analysis_error": meme.analysis_error,
         }
@@ -64,7 +80,7 @@ class MemeRepository:
         meme.why_funny = payload.get("why_funny")
         meme.references = payload.get("references")
         meme.use_cases = payload.get("use_cases")
-        meme.tags = json.dumps(payload.get("tags", []))
+        meme.tags = json.dumps(self._normalize_tags(payload.get("tags", [])))
         meme.analysis_status = status
         meme.analysis_error = error
         self.db.commit()
@@ -134,7 +150,7 @@ class MemeRepository:
                     "why_funny": r["why_funny"],
                     "references": r["references_text"],
                     "use_cases": r["use_cases"],
-                    "tags": json.loads(r["tags"] or "[]"),
+                    "tags": self._parse_tags(r["tags"]),
                     "analysis_status": r["analysis_status"],
                     "analysis_error": r["analysis_error"],
                     "rank": r["score"],

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import time
+import asyncio
 from datetime import datetime, timezone
 from importlib import reload
 from io import BytesIO
@@ -242,3 +243,67 @@ def test_startup_requeues_pending_memes(monkeypatch, tmp_path):
 
     assert detail["filename"] == "recovered.jpg"
     assert detail["analysis_status"] == "done"
+
+
+def test_error_paths_and_repository_guards(monkeypatch, tmp_path):
+    _config, _database, _init_db, _llm, main, repository = load_test_modules(
+        monkeypatch,
+        tmp_path,
+        api_key="test-key",
+    )
+
+    with TestClient(main.app) as client:
+        too_many = client.post(
+            "/api/memes/upload",
+            files=[("files", (f"meme-{idx}.png", image_bytes(), "image/png")) for idx in range(51)],
+        )
+        assert too_many.status_code == 413
+
+        missing_detail = client.get("/api/memes/999999")
+        assert missing_detail.status_code == 404
+
+        missing_delete = client.delete("/api/memes/999999")
+        assert missing_delete.status_code == 404
+
+        bad_search_mode = client.get("/api/search", params={"q": "reaction", "mode": "exact"})
+        assert bad_search_mode.status_code == 400
+
+        empty_llm = client.post("/api/search/llm", json={"query": "!!!", "top_n": 5})
+        assert empty_llm.status_code == 200
+        assert empty_llm.json() == {"items": []}
+
+    db = _database.SessionLocal()
+    repo = repository.MemeRepository(db)
+    assert repo._parse_tags("not-json") == []
+    assert repo._parse_tags(json.dumps({"wrong": "shape"})) == []
+    assert repo._normalize_tags("bad") == []
+    repo.update_analysis(999999, {"description": "ignored", "tags": "bad"}, "done")
+    assert repo.get_for_llm([]) == []
+    db.close()
+
+
+def test_analyze_and_store_handles_missing_and_crash(monkeypatch, tmp_path):
+    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
+        monkeypatch,
+        tmp_path,
+        api_key="test-key",
+    )
+
+    _init_db.init_db()
+    asyncio.run(main.analyze_and_store(999999))
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(main, "analyze_image", boom)
+
+    with TestClient(main.app) as client:
+        upload = client.post(
+            "/api/memes/upload",
+            files=[("files", ("boom.png", image_bytes(), "image/png"))],
+        )
+        assert upload.status_code == 200
+        meme_id = upload.json()["items"][0]["id"]
+
+        detail = wait_for_status(client, meme_id, "error")
+        assert detail["analysis_error"] == "boom"

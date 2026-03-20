@@ -17,7 +17,18 @@ from .database import SessionLocal
 from .init_db import init_db
 from .llm import LLMUnavailableError, analyze_image, llm_rank
 from .repository import MemeRepository
-from .schemas import LlmSearchRequest
+from .schemas import (
+    DeleteOut,
+    ErrorBody,
+    ErrorDetail,
+    LlmSearchOut,
+    LlmSearchRequest,
+    MemeListOut,
+    MemeOut,
+    MemeSearchOut,
+    PendingOut,
+    UploadOut,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +74,15 @@ def recent_status_snapshot(pending_items: list[dict]) -> list[dict]:
 
 
 def llm_unavailable_response() -> JSONResponse:
+    error = ErrorBody(
+        error=ErrorDetail(
+            code="llm_unavailable",
+            message="LLM features are unavailable because OPENAI_API_KEY is not configured.",
+        )
+    )
     return JSONResponse(
         status_code=503,
-        content={
-            "error": {
-                "code": "llm_unavailable",
-                "message": "LLM features are unavailable because OPENAI_API_KEY is not configured.",
-            }
-        },
+        content=error.model_dump(),
     )
 
 
@@ -149,7 +161,7 @@ app = FastAPI(title="Meme Organiser", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-@app.post("/api/memes/upload")
+@app.post("/api/memes/upload", response_model=UploadOut)
 async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
     if len(files) > 50:
         raise HTTPException(status_code=413, detail="Maximum 50 files per request")
@@ -183,7 +195,7 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
     return {"items": items}
 
 
-@app.get("/api/memes")
+@app.get("/api/memes", response_model=MemeListOut)
 def list_memes(page: int = 1, page_size: int = 40, db: Session = Depends(get_db)):
     page_size = max(1, min(page_size, 100))
     repo = MemeRepository(db)
@@ -191,7 +203,7 @@ def list_memes(page: int = 1, page_size: int = 40, db: Session = Depends(get_db)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-@app.get("/api/memes/pending")
+@app.get("/api/memes/pending", response_model=PendingOut)
 def pending(db: Session = Depends(get_db)):
     pending_items = MemeRepository(db).pending_statuses()
     return {"items": recent_status_snapshot(pending_items)}
@@ -205,7 +217,7 @@ def image(meme_id: int, db: Session = Depends(get_db)):
     return Response(content=meme.image_data, media_type=meme.mime_type)
 
 
-@app.get("/api/memes/{meme_id}")
+@app.get("/api/memes/{meme_id}", response_model=MemeOut)
 def get_meme(meme_id: int, db: Session = Depends(get_db)):
     repo = MemeRepository(db)
     meme = repo.get(meme_id)
@@ -214,21 +226,21 @@ def get_meme(meme_id: int, db: Session = Depends(get_db)):
     return repo._to_dict(meme)
 
 
-@app.delete("/api/memes/{meme_id}")
+@app.delete("/api/memes/{meme_id}", response_model=DeleteOut)
 def delete_meme(meme_id: int, db: Session = Depends(get_db)):
     if not MemeRepository(db).delete(meme_id):
         raise HTTPException(status_code=404, detail="Not found")
     return {"deleted": True}
 
 
-@app.get("/api/search")
+@app.get("/api/search", response_model=MemeSearchOut)
 def fuzzy_search(q: str, mode: str = "fuzzy", db: Session = Depends(get_db)):
     if mode != "fuzzy":
         raise HTTPException(status_code=400, detail="Unsupported mode")
     return {"items": MemeRepository(db).search_fts(q, limit=20)}
 
 
-@app.post("/api/search/llm")
+@app.post("/api/search/llm", response_model=LlmSearchOut, responses={503: {"model": ErrorBody}})
 async def ai_search(body: LlmSearchRequest, db: Session = Depends(get_db)):
     if not settings.openai_api_key:
         return llm_unavailable_response()
