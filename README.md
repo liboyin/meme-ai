@@ -10,12 +10,10 @@ Meme Organiser is a local-first meme library built with FastAPI, React, Vite, an
 cp .env.example .env
 ```
 
-2. Install backend dependencies:
+2. Install backend dependencies with `uv`:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync --group dev
 ```
 
 3. Install frontend dependencies:
@@ -31,8 +29,7 @@ cd ..
 Start the FastAPI server from the repo root:
 
 ```bash
-source .venv/bin/activate
-uvicorn backend.main:app --reload
+uv run uvicorn backend.main:app --reload
 ```
 
 In a second terminal, start the Vite frontend:
@@ -49,11 +46,8 @@ The frontend uses the Vite proxy, so the browser talks to `/api/...` directly du
 Backend:
 
 ```bash
-source .venv/bin/activate
-cd backend
-pytest
-cd ..
-.venv/bin/ruff check backend
+uv run --group dev pytest backend
+uv run --group dev ruff check backend
 ```
 
 Backend coverage is enforced by `pytest` and fails below 85%.
