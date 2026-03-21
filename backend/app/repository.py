@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any, Iterable
 
 from sqlalchemy import text
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
 from .models import Meme
@@ -30,7 +31,12 @@ class MemeRepository:
         return parsed if isinstance(parsed, list) else []
 
     @classmethod
-    def _api_payload(cls, meme: Meme | Mapping[str, Any], *, include_rank: bool = False) -> dict:
+    def _api_payload(
+        cls,
+        meme: Meme | Mapping[str, Any] | RowMapping,
+        *,
+        include_rank: bool = False,
+    ) -> dict[str, Any]:
         def get(field: str) -> Any:
             if isinstance(meme, Mapping):
                 return meme.get(field)
@@ -55,7 +61,7 @@ class MemeRepository:
         return payload
 
     @staticmethod
-    def _to_dict(meme: Meme) -> dict:
+    def _to_dict(meme: Meme) -> dict[str, Any]:
         return MemeRepository._api_payload(meme)
 
     def create_meme(self, **kwargs) -> Meme:

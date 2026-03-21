@@ -5,13 +5,22 @@ import logging
 from typing import Any
 
 from openai import AsyncOpenAI, BadRequestError
+from openai.types.chat import (
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartTextParam,
+    ChatCompletionMessageParam,
+)
+from openai.types.shared_params.response_format_json_schema import (
+    JSONSchema,
+    ResponseFormatJSONSchema,
+)
 
 from .config import settings
 
 logger = logging.getLogger(__name__)
 semaphore = asyncio.Semaphore(3)
 
-ANALYSIS_SCHEMA = {
+ANALYSIS_SCHEMA: dict[str, object] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
@@ -27,7 +36,7 @@ ANALYSIS_SCHEMA = {
     "required": ["description", "why_funny", "references", "use_cases", "tags"],
 }
 
-RANKING_SCHEMA = {
+RANKING_SCHEMA: dict[str, object] = {
     "type": "array",
     "items": {
         "type": "object",
@@ -90,24 +99,26 @@ def _extract_json(content: str) -> Any:
 
 async def _create_json_completion(
     *,
-    messages: list[dict[str, Any]],
+    messages: list[ChatCompletionMessageParam],
     schema_name: str,
-    schema: dict[str, Any],
+    schema: dict[str, object],
     fallback_instructions: str,
 ) -> Any:
     client = _client()
+    json_schema: JSONSchema = {
+        "name": schema_name,
+        "strict": True,
+        "schema": schema,
+    }
+    response_format: ResponseFormatJSONSchema = {
+        "type": "json_schema",
+        "json_schema": json_schema,
+    }
 
     try:
         response = await client.chat.completions.create(
             model=settings.openai_model,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema_name,
-                    "strict": True,
-                    "schema": schema,
-                },
-            },
+            response_format=response_format,
             messages=messages,
         )
         content = response.choices[0].message.content or ""
@@ -115,13 +126,11 @@ async def _create_json_completion(
     except BadRequestError as exc:
         logger.info("Provider rejected json_schema response_format, retrying with prompt-only JSON: %s", exc)
 
-    fallback_messages = [
-        *messages,
-        {
-            "role": "system",
-            "content": fallback_instructions,
-        },
-    ]
+    fallback_message: ChatCompletionMessageParam = {
+        "role": "system",
+        "content": fallback_instructions,
+    }
+    fallback_messages = [*messages, fallback_message]
     response = await client.chat.completions.create(
         model=settings.openai_model,
         messages=fallback_messages,
@@ -138,6 +147,21 @@ async def analyze_image(image_bytes: bytes, mime_type: str) -> dict:
             "Describe what is visible, explain why it is funny, note any references, "
             "suggest likely use cases, and provide concise searchable tags."
         )
+        prompt_part: ChatCompletionContentPartTextParam = {"type": "text", "text": prompt}
+        image_part: ChatCompletionContentPartImageParam = {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{b64}"},
+        }
+        messages: list[ChatCompletionMessageParam] = [
+            {
+                "role": "system",
+                "content": "You analyze memes for offline search and organization.",
+            },
+            {
+                "role": "user",
+                "content": [prompt_part, image_part],
+            },
+        ]
         data = await _create_json_completion(
             schema_name="meme_analysis",
             schema=ANALYSIS_SCHEMA,
@@ -145,22 +169,7 @@ async def analyze_image(image_bytes: bytes, mime_type: str) -> dict:
                 "Return only a JSON object with keys description, why_funny, references, "
                 "use_cases, and tags. tags must be an array of strings."
             ),
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You analyze memes for offline search and organization.",
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{b64}"},
-                        },
-                    ],
-                },
-            ],
+            messages=messages,
         )
         return _normalise_analysis_payload(data)
 
@@ -189,6 +198,13 @@ async def llm_rank(query: str, candidates: list[dict]) -> list[dict]:
                 f"Query: {query}\n"
                 f"Candidates: {json.dumps(payload, ensure_ascii=True)}"
             )
+            messages: list[ChatCompletionMessageParam] = [
+                {
+                    "role": "system",
+                    "content": "You rerank meme search candidates for a local archive.",
+                },
+                {"role": "user", "content": prompt},
+            ]
             parsed = await _create_json_completion(
                 schema_name="meme_rankings",
                 schema=RANKING_SCHEMA,
@@ -196,13 +212,7 @@ async def llm_rank(query: str, candidates: list[dict]) -> list[dict]:
                     "Return only a JSON array of objects in the form "
                     '[{"id":123,"score":8.5,"reason":"..."}].'
                 ),
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You rerank meme search candidates for a local archive.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                messages=messages,
             )
             arr = parsed if isinstance(parsed, list) else parsed.get("results", [])
             for item in arr:
