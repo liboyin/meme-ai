@@ -8,4 +8,6 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list /usr/share/keyrings/yarn-archive-key
     && rm -rf /var/lib/apt/lists/* \
     && curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
+ENV PATH="/workspaces/meme-ai/.venv/bin:${PATH}"
+
 WORKDIR /workspaces/meme-ai

@@ -4,8 +4,8 @@ RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app
 
-COPY frontend/package.json /app/package.json
-RUN npm install
+COPY frontend/package.json frontend/package-lock.json /app/
+RUN npm ci
 
 COPY frontend /app
 RUN chown -R app:app /app
