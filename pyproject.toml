@@ -10,7 +10,6 @@ dependencies = [
   "pillow==10.4.0",
   "pydantic==2.9.2",
   "pydantic-settings==2.5.2",
-  "python-dotenv==1.0.1",
   "python-multipart==0.0.9",
   "sqlalchemy==2.0.35",
   "uvicorn==0.30.6",
