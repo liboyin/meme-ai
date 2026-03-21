@@ -5,6 +5,9 @@
   },
   "remoteUser": "vscode",
   "forwardPorts": [8000, 5173],
+  "mounts": [
+      "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly=true"
+  ],
   "postCreateCommand": "chmod +x .devcontainer/postCreateCommand.sh && ./.devcontainer/postCreateCommand.sh",
   "customizations": {
     "vscode": {
