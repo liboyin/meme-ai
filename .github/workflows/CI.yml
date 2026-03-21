@@ -21,8 +21,11 @@ jobs:
       - name: Install backend dependencies
         run: uv sync --group dev
 
-      - name: Lint backend
+      - name: Run backend ruff checks
         run: uv run --group dev ruff check backend
+
+      - name: Run backend mypy checks
+        run: uv run --group dev mypy .
 
       - name: Run backend tests with coverage gate
         run: uv run --group dev pytest backend/tests
