@@ -5,6 +5,7 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list /usr/share/keyrings/yarn-archive-key
     && apt-get update \
     && apt-get install -y nodejs \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-WORKDIR /workspace/meme-ai
+WORKDIR /workspaces/meme-ai
