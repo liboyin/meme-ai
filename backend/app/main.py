@@ -6,9 +6,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from io import BytesIO
 from sqlite3 import Connection
+from typing import Annotated
 
 import imagehash
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from PIL import Image, UnidentifiedImageError
@@ -17,7 +18,7 @@ from .config import settings
 from .database import SessionLocal
 from .init_db import init_db
 from .llm import LLMUnavailableError, analyze_image, llm_rank
-from .repository import DuplicateMemeError, MemeRepository
+from .repository import DuplicateMemeError, MemeRepository, SortBy, SortOrder
 from .schemas import LlmSearchRequest, MemeIndexFieldsIn
 
 logger = logging.getLogger(__name__)
@@ -206,10 +207,17 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
 
 
 @app.get("/api/memes")
-def list_memes(page: int = 1, page_size: int = 40, db: Connection = Depends(get_db)):
+def list_memes(
+    page: int = 1,
+    page_size: int = 40,
+    sort_by: Annotated[SortBy, Query()] = "uploaded_at",
+    sort_order: Annotated[SortOrder, Query()] = "desc",
+    db: Connection = Depends(get_db),
+):
+    page = max(1, page)
     page_size = max(1, min(page_size, 100))
     repo = MemeRepository(db)
-    items, total = repo.list_memes(page, page_size)
+    items, total = repo.list_memes(page, page_size, sort_by=sort_by, sort_order=sort_order)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 

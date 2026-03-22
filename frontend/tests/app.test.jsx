@@ -32,6 +32,15 @@ function deferred() {
 }
 
 function installFetchMock(routes) {
+  const calls = {
+    list: [],
+    pending: [],
+    search: [],
+    searchLlm: [],
+    detail: [],
+    update: [],
+    delete: []
+  }
   const queues = Object.fromEntries(
     Object.entries(routes).map(([key, value]) => [key, Array.isArray(value) ? [...value] : [value]])
   )
@@ -51,6 +60,9 @@ function installFetchMock(routes) {
     if (url === '/api/search/llm') {
       return consume('searchLlm', url, options)
     }
+    if (/^\/api\/memes\/\d+$/.test(url) && options.method === 'PUT') {
+      return consume('update', url, options)
+    }
     if (/^\/api\/memes\/\d+$/.test(url) && options.method === 'DELETE') {
       return consume('delete', url, options)
     }
@@ -62,6 +74,7 @@ function installFetchMock(routes) {
   })
 
   function consume(key, url, options) {
+    calls[key].push({ url, options })
     const queue = queues[key] || [makeResponse({})]
     const next = queue.length > 1 ? queue.shift() : queue[0]
     queues[key] = queue
@@ -70,6 +83,8 @@ function installFetchMock(routes) {
     }
     return next
   }
+
+  return calls
 }
 
 async function advanceTimers(ms) {
@@ -98,7 +113,7 @@ afterEach(() => {
 
 describe('App', () => {
   it('renders the empty gallery state', async () => {
-    installFetchMock({
+    const calls = installFetchMock({
       list: makeResponse({ items: [], total: 0 }),
       pending: makeResponse({ items: [] })
     })
@@ -107,6 +122,8 @@ describe('App', () => {
 
     expect(await screen.findByText('Meme Organiser')).toBeTruthy()
     expect(await screen.findByText('Your meme vault is empty')).toBeTruthy()
+    expect(calls.list[0].url).toContain('sort_by=uploaded_at')
+    expect(calls.list[0].url).toContain('sort_order=desc')
   })
 
   it('shows a collection error when the gallery load fails', async () => {
@@ -148,6 +165,42 @@ describe('App', () => {
     expect(await screen.findByText('page-one.png')).toBeTruthy()
   })
 
+  it('changes gallery sorting and resets pagination back to page one', async () => {
+    const calls = installFetchMock({
+      list: [
+        makeResponse({
+          items: [{ id: 1, filename: 'page-one.png', description: 'first', analysis_status: 'done', tags: [] }],
+          total: 80
+        }),
+        makeResponse({
+          items: [{ id: 2, filename: 'page-two.png', description: 'second', analysis_status: 'done', tags: [] }],
+          total: 80
+        }),
+        makeResponse({
+          items: [{ id: 3, filename: 'alpha.png', description: 'alpha', analysis_status: 'done', tags: [] }],
+          total: 80
+        })
+      ],
+      pending: makeResponse({ items: [] })
+    })
+
+    render(createElement(App))
+
+    expect(await screen.findByText('page-one.png')).toBeTruthy()
+    fireEvent.click(screen.getByText('Next'))
+    expect(await screen.findByText('page-two.png')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Sort gallery'), {
+      target: { value: 'filename_asc' }
+    })
+
+    expect(await screen.findByText('alpha.png')).toBeTruthy()
+    expect(calls.list[2].url).toContain('page=1')
+    expect(calls.list[2].url).toContain('sort_by=filename')
+    expect(calls.list[2].url).toContain('sort_order=asc')
+    expect(screen.getByText('Page 1 of 2')).toBeTruthy()
+  })
+
   it('opens a detail modal and deletes a meme', async () => {
     installFetchMock({
       list: [
@@ -180,6 +233,81 @@ describe('App', () => {
 
     fireEvent.click(screen.getByText('Delete meme'))
     expect(await screen.findByText('Your meme vault is empty')).toBeTruthy()
+  })
+
+  it('saves edited meme metadata through the API', async () => {
+    const calls = installFetchMock({
+      list: [
+        makeResponse({
+          items: [{ id: 10, filename: 'focus.png', description: 'preview', analysis_status: 'done', tags: ['focus'] }],
+          total: 1
+        }),
+        makeResponse({
+          items: [{ id: 10, filename: 'focus.png', description: 'saved detail', analysis_status: 'done', tags: ['focus', 'edited'] }],
+          total: 1
+        })
+      ],
+      pending: makeResponse({ items: [] }),
+      detail: makeResponse({
+        id: 10,
+        filename: 'focus.png',
+        mime_type: 'image/png',
+        description: 'full detail',
+        why_funny: 'relatable panic',
+        references: 'internet forum energy',
+        use_cases: 'deadline jokes',
+        tags: ['focus'],
+        analysis_status: 'done',
+        analysis_error: null
+      }),
+      update: makeResponse({
+        id: 10,
+        filename: 'focus.png',
+        mime_type: 'image/png',
+        description: 'saved detail',
+        why_funny: 'updated joke',
+        references: 'updated ref',
+        use_cases: 'updated use',
+        tags: ['focus', 'edited'],
+        analysis_status: 'done',
+        analysis_error: null
+      })
+    })
+
+    render(createElement(App))
+
+    fireEvent.click(await screen.findByText('focus.png'))
+    fireEvent.click(await screen.findByText('Edit fields'))
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: '  saved detail  ' }
+    })
+    fireEvent.change(screen.getByLabelText('Why it is funny'), {
+      target: { value: 'updated joke' }
+    })
+    fireEvent.change(screen.getByLabelText('References'), {
+      target: { value: 'updated ref' }
+    })
+    fireEvent.change(screen.getByLabelText('Use cases'), {
+      target: { value: 'updated use' }
+    })
+    fireEvent.change(screen.getByLabelText('Comma-separated tags'), {
+      target: { value: 'focus, edited' }
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Save metadata'))
+    })
+
+    expect(calls.update[0].url).toBe('/api/memes/10')
+    expect(calls.update[0].options.method).toBe('PUT')
+    expect(JSON.parse(calls.update[0].options.body)).toEqual({
+      description: 'saved detail',
+      why_funny: 'updated joke',
+      references: 'updated ref',
+      use_cases: 'updated use',
+      tags: ['focus', 'edited']
+    })
+    expect(await screen.findByText('saved detail')).toBeTruthy()
   })
 
   it('shows detail and delete errors when those requests fail', async () => {

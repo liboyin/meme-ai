@@ -35,8 +35,20 @@ def init_db() -> None:
             )
             db.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_memes_phash
-                ON memes (phash)
+                CREATE INDEX IF NOT EXISTS idx_memes_uploaded_at_sort
+                ON memes (uploaded_at DESC, id DESC)
+                """
+            )
+            db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memes_filename_sort
+                ON memes (filename COLLATE NOCASE ASC, id ASC)
+                """
+            )
+            db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memes_phash_sort
+                ON memes (phash ASC, id ASC)
                 """
             )
         except sqlite3.IntegrityError as exc:

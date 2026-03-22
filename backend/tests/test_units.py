@@ -274,7 +274,65 @@ def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
     db.close()
 
 
-def test_init_db_adds_phash_column_and_index(monkeypatch, tmp_path):
+def test_repository_list_memes_supports_requested_sort(monkeypatch, tmp_path):
+    modules = load_test_modules(monkeypatch, tmp_path)
+    modules.init_db.init_db()
+
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+    for index, (filename, phash, uploaded_at, color) in enumerate(
+        [
+            ("z-last.png", "ccc333", "2026-01-03T00:00:00+00:00", (255, 0, 0)),
+            ("a-first.png", "aaa111", "2026-01-01T00:00:00+00:00", (0, 255, 0)),
+            ("m-middle.png", "bbb222", "2026-01-02T00:00:00+00:00", (0, 0, 255)),
+        ],
+        start=1,
+    ):
+        repo.create_meme(
+            filename=filename,
+            mime_type="image/png",
+            sha256=f"seed-{index}",
+            phash=phash,
+            image_data=image_bytes(color=color),
+            uploaded_at=uploaded_at,
+            analysis_status="done",
+        )
+
+    newest_first, total = repo.list_memes(page=1, page_size=10)
+    assert total == 3
+    assert [item["filename"] for item in newest_first] == [
+        "z-last.png",
+        "m-middle.png",
+        "a-first.png",
+    ]
+
+    oldest_first, _ = repo.list_memes(page=1, page_size=10, sort_by="uploaded_at", sort_order="asc")
+    assert [item["filename"] for item in oldest_first] == [
+        "a-first.png",
+        "m-middle.png",
+        "z-last.png",
+    ]
+
+    filename_sorted, _ = repo.list_memes(page=1, page_size=10, sort_by="filename", sort_order="asc")
+    assert [item["filename"] for item in filename_sorted] == [
+        "a-first.png",
+        "m-middle.png",
+        "z-last.png",
+    ]
+
+    phash_sorted, _ = repo.list_memes(page=1, page_size=10, sort_by="phash", sort_order="asc")
+    assert [item["filename"] for item in phash_sorted] == [
+        "a-first.png",
+        "m-middle.png",
+        "z-last.png",
+    ]
+
+    with pytest.raises(ValueError):
+        repo.list_memes(page=1, page_size=10, sort_by="nope")  # type: ignore[arg-type]
+    db.close()
+
+
+def test_init_db_adds_phash_column_and_sort_indexes(monkeypatch, tmp_path):
     modules = load_test_modules(monkeypatch, tmp_path)
     modules.init_db.init_db()
 
@@ -284,7 +342,9 @@ def test_init_db_adds_phash_column_and_index(monkeypatch, tmp_path):
 
     assert "phash" in columns
     assert columns["phash"]["notnull"] == 1
-    assert "idx_memes_phash" in indexes
+    assert "idx_memes_uploaded_at_sort" in indexes
+    assert "idx_memes_filename_sort" in indexes
+    assert "idx_memes_phash_sort" in indexes
     db.close()
 
 

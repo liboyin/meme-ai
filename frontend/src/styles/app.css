@@ -32,6 +32,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -115,6 +116,23 @@ button {
   border-radius: 30px;
 }
 
+.toolbarSide,
+.toolbarField {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbarSide {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.toolbarField {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .eyebrow,
 .statLabel,
 .fieldLabel {
@@ -160,7 +178,21 @@ button {
   color: var(--text);
 }
 
+.selectInput {
+  min-width: 190px;
+  border: 1px solid rgba(127, 83, 42, 0.2);
+  border-radius: 18px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
 .searchInput:focus {
+  outline: 2px solid rgba(215, 101, 50, 0.24);
+  border-color: rgba(215, 101, 50, 0.5);
+}
+
+.selectInput:focus {
   outline: 2px solid rgba(215, 101, 50, 0.24);
   border-color: rgba(215, 101, 50, 0.5);
 }
@@ -487,6 +519,7 @@ button {
   }
 
   .toolbar,
+  .toolbarSide,
   .modalHeader,
   .detailRow,
   .pager {

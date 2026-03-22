@@ -2,11 +2,22 @@ import json
 import re
 import sqlite3
 from collections.abc import Mapping
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from .models import Meme
 
 FTS_TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
+SortBy = Literal["uploaded_at", "filename", "phash"]
+SortOrder = Literal["asc", "desc"]
+
+LIST_MEME_ORDER_BY: dict[tuple[SortBy, SortOrder], str] = {
+    ("uploaded_at", "desc"): "uploaded_at DESC, id DESC",
+    ("uploaded_at", "asc"): "uploaded_at ASC, id ASC",
+    ("filename", "asc"): "filename COLLATE NOCASE ASC, id ASC",
+    ("filename", "desc"): "filename COLLATE NOCASE DESC, id DESC",
+    ("phash", "asc"): "phash ASC, id ASC",
+    ("phash", "desc"): "phash DESC, id DESC",
+}
 
 
 class DuplicateMemeError(ValueError):
@@ -153,13 +164,28 @@ class MemeRepository:
             return None
         return self._row_to_meme(row)
 
-    def list_memes(self, page: int, page_size: int) -> tuple[list[dict], int]:
+    @staticmethod
+    def _list_order_by(sort_by: SortBy, sort_order: SortOrder) -> str:
+        try:
+            return LIST_MEME_ORDER_BY[(sort_by, sort_order)]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported meme sort: {sort_by} {sort_order}") from exc
+
+    def list_memes(
+        self,
+        page: int,
+        page_size: int,
+        *,
+        sort_by: SortBy = "uploaded_at",
+        sort_order: SortOrder = "desc",
+    ) -> tuple[list[dict], int]:
+        order_by = self._list_order_by(sort_by, sort_order)
         total_row = self.db.execute("SELECT COUNT(*) AS total FROM memes").fetchone()
         total = int(total_row["total"]) if total_row is not None else 0
         rows = self.db.execute(
-            """
+            f"""
             SELECT * FROM memes
-            ORDER BY uploaded_at DESC, id DESC
+            ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (page_size, (page - 1) * page_size),

@@ -273,6 +273,79 @@ def test_upload_persists_phash(monkeypatch, tmp_path):
     db.close()
 
 
+def test_list_memes_supports_sorting(monkeypatch, tmp_path):
+    _config, database, init_db, _llm, main, repository = load_test_modules(
+        monkeypatch,
+        tmp_path,
+        api_key="",
+    )
+    init_db.init_db()
+
+    db = database.SessionLocal()
+    repo = repository.MemeRepository(db)
+    seeded_memes = [
+        ("z-last.png", "ccc333", "2026-01-03T00:00:00+00:00", (255, 0, 0)),
+        ("a-first.png", "aaa111", "2026-01-01T00:00:00+00:00", (0, 255, 0)),
+        ("m-middle.png", "bbb222", "2026-01-02T00:00:00+00:00", (0, 0, 255)),
+    ]
+    for index, (filename, phash, uploaded_at, color) in enumerate(seeded_memes, start=1):
+        repo.create_meme(
+            filename=filename,
+            mime_type="image/png",
+            sha256=f"seed-{index}",
+            phash=phash,
+            image_data=image_bytes(color=color),
+            uploaded_at=uploaded_at,
+            analysis_status="done",
+        )
+    db.close()
+
+    with TestClient(main.app) as client:
+        newest_first = client.get("/api/memes")
+        assert newest_first.status_code == 200
+        assert [item["filename"] for item in newest_first.json()["items"]] == [
+            "z-last.png",
+            "m-middle.png",
+            "a-first.png",
+        ]
+
+        oldest_first = client.get(
+            "/api/memes",
+            params={"sort_by": "uploaded_at", "sort_order": "asc"},
+        )
+        assert oldest_first.status_code == 200
+        assert [item["filename"] for item in oldest_first.json()["items"]] == [
+            "a-first.png",
+            "m-middle.png",
+            "z-last.png",
+        ]
+
+        filename_sorted = client.get(
+            "/api/memes",
+            params={"sort_by": "filename", "sort_order": "asc"},
+        )
+        assert filename_sorted.status_code == 200
+        assert [item["filename"] for item in filename_sorted.json()["items"]] == [
+            "a-first.png",
+            "m-middle.png",
+            "z-last.png",
+        ]
+
+        phash_sorted = client.get(
+            "/api/memes",
+            params={"sort_by": "phash", "sort_order": "asc"},
+        )
+        assert phash_sorted.status_code == 200
+        assert [item["filename"] for item in phash_sorted.json()["items"]] == [
+            "a-first.png",
+            "m-middle.png",
+            "z-last.png",
+        ]
+
+        invalid_sort = client.get("/api/memes", params={"sort_by": "nope"})
+        assert invalid_sort.status_code == 422
+
+
 def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(monkeypatch, tmp_path):
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,

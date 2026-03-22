@@ -16,7 +16,11 @@ export default function App() {
     totalPages,
     collectionError,
     refreshToken,
-    refreshCollection
+    refreshCollection,
+    sortOption,
+    sortLabel,
+    sortOptions,
+    setSortOption
   } = useMemesCollection()
 
   const {
@@ -217,6 +221,10 @@ export default function App() {
           searchLoading,
           page,
           totalPages,
+          sortOption,
+          sortLabel,
+          sortOptions,
+          onSortChange: setSortOption,
           onPreviousPage: () => setPage((current) => Math.max(1, current - 1)),
           onNextPage: () => setPage((current) => Math.min(totalPages, current + 1)),
           onOpenDetail: openDetail

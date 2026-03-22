@@ -1,9 +1,13 @@
 import { createElement } from 'react'
-import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import Sidebar from '../src/components/Sidebar'
 import MemeGrid from '../src/components/MemeGrid'
 import MemeDetailModal from '../src/components/MemeDetailModal'
+
+afterEach(() => {
+  cleanup()
+})
 
 describe('Sidebar', () => {
   it('renders search/upload/stats and forwards interactions', () => {
@@ -65,6 +69,7 @@ describe('MemeGrid', () => {
     const onPreviousPage = vi.fn()
     const onNextPage = vi.fn()
     const onOpenDetail = vi.fn()
+    const onSortChange = vi.fn()
     const meme = { id: 7, filename: 'x.png', description: 'desc', analysis_status: 'done', tags: ['a'] }
 
     render(
@@ -79,6 +84,13 @@ describe('MemeGrid', () => {
         searchLoading: false,
         page: 2,
         totalPages: 3,
+        sortOption: 'uploaded_at_desc',
+        sortLabel: 'Newest uploads',
+        sortOptions: [
+          { value: 'uploaded_at_desc', label: 'Newest uploads' },
+          { value: 'filename_asc', label: 'Filename' }
+        ],
+        onSortChange,
         onPreviousPage,
         onNextPage,
         onOpenDetail
@@ -92,6 +104,11 @@ describe('MemeGrid', () => {
     fireEvent.click(screen.getByText('Next'))
     expect(onPreviousPage).toHaveBeenCalledTimes(1)
     expect(onNextPage).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(screen.getByLabelText('Sort gallery'), {
+      target: { value: 'filename_asc' }
+    })
+    expect(onSortChange).toHaveBeenCalledWith('filename_asc')
 
     expect(screen.getByText(/still being analysed/)).toBeTruthy()
   })
@@ -109,6 +126,10 @@ describe('MemeGrid', () => {
         searchLoading: false,
         page: 1,
         totalPages: 1,
+        sortOption: 'uploaded_at_desc',
+        sortLabel: 'Newest uploads',
+        sortOptions: [{ value: 'uploaded_at_desc', label: 'Newest uploads' }],
+        onSortChange: vi.fn(),
         onPreviousPage: vi.fn(),
         onNextPage: vi.fn(),
         onOpenDetail: vi.fn()
@@ -169,5 +190,111 @@ describe('MemeDetailModal', () => {
 
     expect(screen.getByText('broken analysis')).toBeTruthy()
     expect(screen.getByText('No tags yet.')).toBeTruthy()
+  })
+
+  it('edits metadata, saves trimmed values, and closes on backdrop click', async () => {
+    const onClose = vi.fn()
+    const onDelete = vi.fn()
+    const onSave = vi.fn().mockResolvedValue({})
+
+    render(
+      createElement(MemeDetailModal, {
+        detailId: 5,
+        detail: {
+          filename: 'edit.png',
+          analysis_status: 'done',
+          analysis_error: null,
+          mime_type: 'image/png',
+          description: 'old desc',
+          why_funny: 'old joke',
+          references: 'old ref',
+          use_cases: 'old use',
+          tags: ['old']
+        },
+        detailLoading: false,
+        detailSaving: false,
+        detailError: '',
+        onClose,
+        onSave,
+        onDelete
+      })
+    )
+
+    fireEvent.click(screen.getByText('Edit fields'))
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: '  new desc  ' }
+    })
+    fireEvent.change(screen.getByLabelText('Why it is funny'), {
+      target: { value: '  still funny  ' }
+    })
+    fireEvent.change(screen.getByLabelText('References'), {
+      target: { value: '  forum lore  ' }
+    })
+    fireEvent.change(screen.getByLabelText('Use cases'), {
+      target: { value: '  replies  ' }
+    })
+    fireEvent.change(screen.getByLabelText('Comma-separated tags'), {
+      target: { value: ' wow, neat ' }
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Save metadata'))
+    })
+
+    expect(onSave).toHaveBeenCalledWith({
+      description: 'new desc',
+      why_funny: 'still funny',
+      references: 'forum lore',
+      use_cases: 'replies',
+      tags: ['wow', 'neat']
+    })
+    expect(screen.queryByText('Save metadata')).toBeNull()
+
+    fireEvent.click(document.querySelector('.modal'))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps edits visible after a failed save and lets the user cancel them', async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error('Save failed.'))
+
+    render(
+      createElement(MemeDetailModal, {
+        detailId: 6,
+        detail: {
+          filename: 'retry.png',
+          analysis_status: 'done',
+          analysis_error: null,
+          mime_type: 'image/png',
+          description: 'seed text',
+          why_funny: '',
+          references: '',
+          use_cases: '',
+          tags: []
+        },
+        detailLoading: false,
+        detailSaving: false,
+        detailError: 'Parent error',
+        onClose: vi.fn(),
+        onSave,
+        onDelete: vi.fn()
+      })
+    )
+
+    fireEvent.click(screen.getByText('Edit fields'))
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'draft text' }
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Save metadata'))
+    })
+
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(screen.getByDisplayValue('draft text')).toBeTruthy()
+    expect(screen.getByText('Parent error')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Cancel changes'))
+    expect(screen.queryByText('Save metadata')).toBeNull()
+    expect(screen.getByText('seed text')).toBeTruthy()
   })
 })

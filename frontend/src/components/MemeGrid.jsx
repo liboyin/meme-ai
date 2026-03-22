@@ -9,6 +9,10 @@ export default function MemeGrid({
   searchLoading,
   page,
   totalPages,
+  sortOption,
+  sortLabel,
+  sortOptions,
+  onSortChange,
   onPreviousPage,
   onNextPage,
   onOpenDetail
@@ -17,19 +21,38 @@ export default function MemeGrid({
     <main className="content">
       <div className="toolbar">
         <div>
-          <h2>{hasSearchQuery ? 'Search results' : 'Newest memes'}</h2>
+          <h2>{hasSearchQuery ? 'Search results' : 'Gallery'}</h2>
           <p className="helperText">
             {hasSearchQuery
               ? `${searchResults.length} result${searchResults.length === 1 ? '' : 's'} for "${searchQuery.trim()}".`
-              : `${memes.length} meme${memes.length === 1 ? '' : 's'} on this page.`}
+              : `${memes.length} meme${memes.length === 1 ? '' : 's'} on this page. Sorted by ${sortLabel}.`}
           </p>
         </div>
-        {pendingCount > 0 && (
-          <div className="pendingBanner">
-            <span className="pulse" />
-            {pendingCount} meme{pendingCount === 1 ? '' : 's'} still being analysed
-          </div>
-        )}
+        <div className="toolbarSide">
+          {!hasSearchQuery && (
+            <label className="toolbarField" htmlFor="gallery-sort">
+              <span className="fieldLabel">Sort gallery</span>
+              <select
+                id="gallery-sort"
+                className="selectInput"
+                value={sortOption}
+                onChange={(event) => onSortChange(event.target.value)}
+              >
+                {sortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {pendingCount > 0 && (
+            <div className="pendingBanner">
+              <span className="pulse" />
+              {pendingCount} meme{pendingCount === 1 ? '' : 's'} still being analysed
+            </div>
+          )}
+        </div>
       </div>
 
       {collectionError && <p className="errorText">{collectionError}</p>}
