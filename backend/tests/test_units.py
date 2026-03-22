@@ -328,7 +328,7 @@ def test_repository_list_memes_supports_requested_sort(monkeypatch, tmp_path):
     ]
 
     with pytest.raises(ValueError):
-        repo.list_memes(page=1, page_size=10, sort_by="nope")  # type: ignore[arg-type]
+        repo.list_memes(page=1, page_size=10, sort_by="nope")
     db.close()
 
 
