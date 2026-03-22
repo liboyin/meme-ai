@@ -23,10 +23,12 @@ def init_db() -> None:
             )
             """
         )
+        # Recreate the derived FTS table so schema changes are applied to existing DBs.
+        db.execute("DROP TABLE IF EXISTS memes_fts")
         db.execute(
             """
             CREATE VIRTUAL TABLE IF NOT EXISTS memes_fts USING fts5(
-                filename, description, why_funny, "references", use_cases, tags
+                description, why_funny, "references", use_cases, tags
             )
             """
         )
@@ -36,10 +38,9 @@ def init_db() -> None:
         db.execute(
             """
             CREATE TRIGGER memes_ai AFTER INSERT ON memes BEGIN
-                INSERT INTO memes_fts(rowid, filename, description, why_funny, "references", use_cases, tags)
+                INSERT INTO memes_fts(rowid, description, why_funny, "references", use_cases, tags)
                 SELECT
                     NEW.id,
-                    NEW.filename,
                     NEW.description,
                     NEW.why_funny,
                     NEW."references",
@@ -53,10 +54,9 @@ def init_db() -> None:
             """
             CREATE TRIGGER memes_au AFTER UPDATE ON memes BEGIN
                 DELETE FROM memes_fts WHERE rowid = NEW.id;
-                INSERT INTO memes_fts(rowid, filename, description, why_funny, "references", use_cases, tags)
+                INSERT INTO memes_fts(rowid, description, why_funny, "references", use_cases, tags)
                 SELECT
                     NEW.id,
-                    NEW.filename,
                     NEW.description,
                     NEW.why_funny,
                     NEW."references",
@@ -76,10 +76,9 @@ def init_db() -> None:
         db.execute("DELETE FROM memes_fts")
         db.execute(
             """
-            INSERT INTO memes_fts(rowid, filename, description, why_funny, "references", use_cases, tags)
+            INSERT INTO memes_fts(rowid, description, why_funny, "references", use_cases, tags)
             SELECT
                 m.id,
-                m.filename,
                 m.description,
                 m.why_funny,
                 m."references",

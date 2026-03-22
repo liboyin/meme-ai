@@ -197,6 +197,7 @@ def test_repository_edge_cases(monkeypatch, tmp_path):
 
     assert repo._build_fts_query("wow wow test") == "wow* OR test*"
     assert repo.search_fts("!!!") == []
+    assert repo.search_fts("done") == []
     assert repo.delete(99999) is False
 
     repo.update_analysis(99999, {"description": "ignored"}, "done")
