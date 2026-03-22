@@ -17,7 +17,7 @@ from .database import SessionLocal
 from .init_db import init_db
 from .llm import LLMUnavailableError, analyze_image, llm_rank
 from .repository import MemeRepository
-from .schemas import LlmSearchRequest
+from .schemas import LlmSearchRequest, MemeIndexFieldsIn
 
 logger = logging.getLogger(__name__)
 
@@ -113,19 +113,30 @@ async def analyze_and_store(meme_id: int):
     if not meme:
         db.close()
         return
+    if meme.analysis_status != "pending":
+        db.close()
+        return
+
+    def still_pending() -> bool:
+        current = repo.get(meme_id)
+        return current is not None and current.analysis_status == "pending"
+
     if not settings.openai_api_key:
-        repo.set_error(meme_id, "LLM features are unavailable because OPENAI_API_KEY is not configured.")
-        remember_status(meme_id, "error")
+        if still_pending():
+            repo.set_error(meme_id, "LLM features are unavailable because OPENAI_API_KEY is not configured.")
+            remember_status(meme_id, "error")
         db.close()
         return
     try:
         payload = await analyze_image(meme.image_data, meme.mime_type)
-        repo.update_analysis(meme_id, payload, "done")
-        remember_status(meme_id, "done")
+        if still_pending():
+            repo.update_analysis(meme_id, payload, "done")
+            remember_status(meme_id, "done")
     except Exception as exc:
         logger.exception("Meme analysis failed for meme_id=%s", meme_id)
-        repo.set_error(meme_id, str(exc))
-        remember_status(meme_id, "error")
+        if still_pending():
+            repo.set_error(meme_id, str(exc))
+            remember_status(meme_id, "error")
     finally:
         db.close()
 
@@ -211,6 +222,16 @@ def get_meme(meme_id: int, db: Connection = Depends(get_db)):
     meme = repo.get(meme_id)
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
+    return repo._to_dict(meme)
+
+
+@app.put("/api/memes/{meme_id}")
+def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(get_db)):
+    repo = MemeRepository(db)
+    meme = repo.update_search_fields(meme_id, body.model_dump())
+    if not meme:
+        raise HTTPException(status_code=404, detail="Not found")
+    remember_status(meme_id, "done")
     return repo._to_dict(meme)
 
 

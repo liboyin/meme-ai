@@ -213,6 +213,45 @@ def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(monkeypatch, 
         assert pending.json()["items"][0] == {"id": meme_id, "analysis_status": "error"}
 
 
+def test_manual_metadata_update_reindexes_fts(monkeypatch, tmp_path):
+    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
+        monkeypatch,
+        tmp_path,
+        api_key="",
+    )
+
+    with TestClient(main.app) as client:
+        upload = client.post(
+            "/api/memes/upload",
+            files=[("files", ("manual.png", image_bytes(), "image/png"))],
+        )
+        assert upload.status_code == 200
+        meme_id = upload.json()["items"][0]["id"]
+
+        detail = wait_for_status(client, meme_id, "error")
+        assert detail["analysis_status"] == "error"
+
+        update = client.put(
+            f"/api/memes/{meme_id}",
+            json={
+                "description": "Cat staring with deeply unimpressed energy.",
+                "why_funny": "The deadpan face makes tiny annoyances feel cinematic.",
+                "references": "Classic reaction meme format.",
+                "use_cases": "When a coworker schedules one more meeting.",
+                "tags": ["cat", "deadpan", "meeting"],
+            },
+        )
+        assert update.status_code == 200
+        updated = update.json()
+        assert updated["analysis_status"] == "done"
+        assert updated["analysis_error"] is None
+        assert updated["tags"] == ["cat", "deadpan", "meeting"]
+
+        fuzzy = client.get("/api/search", params={"q": "deadpan meeting", "mode": "fuzzy"})
+        assert fuzzy.status_code == 200
+        assert fuzzy.json()["items"][0]["id"] == meme_id
+
+
 def test_startup_requeues_pending_memes(monkeypatch, tmp_path):
     (
         _config,

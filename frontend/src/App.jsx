@@ -58,6 +58,7 @@ export default function App() {
   const [detailId, setDetailId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailSaving, setDetailSaving] = useState(false)
   const [detailError, setDetailError] = useState('')
   const [isDragging, setIsDragging] = useState(false)
 
@@ -115,7 +116,38 @@ export default function App() {
   function closeDetail() {
     setDetailId(null)
     setDetail(null)
+    setDetailSaving(false)
     setDetailError('')
+  }
+
+  async function saveMemeDetails(fields) {
+    if (detailId === null) {
+      return null
+    }
+
+    try {
+      setDetailSaving(true)
+      setDetailError('')
+      const response = await fetch(`/api/memes/${detailId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields)
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data?.detail || 'Save failed.')
+      }
+
+      setDetail(data)
+      removePendingById(detailId)
+      refreshCollection()
+      return data
+    } catch (error) {
+      setDetailError(error.message || 'Save failed.')
+      throw error
+    } finally {
+      setDetailSaving(false)
+    }
   }
 
   async function deleteMeme(id) {
@@ -195,8 +227,10 @@ export default function App() {
         detailId,
         detail,
         detailLoading,
+        detailSaving,
         detailError,
         onClose: closeDetail,
+        onSave: saveMemeDetails,
         onDelete: deleteMeme
       })}
     </div>

@@ -31,7 +31,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -433,9 +434,26 @@ button {
   align-content: start;
 }
 
+.detailForm,
+.detailField {
+  display: grid;
+  gap: 12px;
+}
+
 .detailBlock {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
+}
+
+.detailTextarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.detailActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .errorText {

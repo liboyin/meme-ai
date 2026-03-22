@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timezone
 from importlib import reload
@@ -258,6 +259,72 @@ async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch
     assert stored.analysis_status == "error"
     assert stored.analysis_error == "analysis crashed"
     assert modules.main.recent_statuses[meme.id][0] == "error"
+    db.close()
+
+
+@pytest.mark.anyio
+async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkeypatch, tmp_path):
+    modules = load_test_modules(monkeypatch, tmp_path)
+    modules.init_db.init_db()
+
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+    meme = repo.create_meme(
+        filename="manual-wins.png",
+        mime_type="image/png",
+        sha256="manual-wins",
+        image_data=image_bytes(),
+        uploaded_at=datetime.now(timezone.utc).isoformat(),
+        analysis_status="pending",
+    )
+    db.close()
+
+    analysis_started = asyncio.Event()
+    allow_analysis_to_finish = asyncio.Event()
+
+    async def slow_analysis(*_args, **_kwargs):
+        analysis_started.set()
+        await allow_analysis_to_finish.wait()
+        return {
+            "description": "AI generated description",
+            "why_funny": "AI explanation",
+            "references": "AI references",
+            "use_cases": "AI use cases",
+            "tags": ["ai", "generated"],
+        }
+
+    monkeypatch.setattr(modules.main, "analyze_image", slow_analysis)
+
+    task = asyncio.create_task(modules.main.analyze_and_store(meme.id))
+    await analysis_started.wait()
+
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+    updated = repo.update_search_fields(
+        meme.id,
+        {
+            "description": "User supplied description",
+            "why_funny": "User supplied joke",
+            "references": "User reference",
+            "use_cases": "User use case",
+            "tags": ["manual", "edited"],
+        },
+    )
+    db.close()
+
+    allow_analysis_to_finish.set()
+    await task
+
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+    stored = repo.get(meme.id)
+    assert updated is not None
+    assert stored.description == "User supplied description"
+    assert stored.why_funny == "User supplied joke"
+    assert stored.references == "User reference"
+    assert stored.use_cases == "User use case"
+    assert json.loads(stored.tags) == ["manual", "edited"]
+    assert stored.analysis_status == "done"
     db.close()
 
 

@@ -180,6 +180,36 @@ class MemeRepository:
         if cursor.rowcount:
             self.db.commit()
 
+    def update_search_fields(self, meme_id: int, payload: Mapping[str, Any]) -> Meme | None:
+        existing = self.get(meme_id)
+        if existing is None:
+            return None
+
+        self.db.execute(
+            """
+            UPDATE memes
+            SET description = ?,
+                why_funny = ?,
+                "references" = ?,
+                use_cases = ?,
+                tags = ?,
+                analysis_status = ?,
+                analysis_error = NULL
+            WHERE id = ?
+            """,
+            (
+                payload.get("description"),
+                payload.get("why_funny"),
+                payload.get("references"),
+                payload.get("use_cases"),
+                json.dumps(payload.get("tags", [])),
+                "done",
+                meme_id,
+            ),
+        )
+        self.db.commit()
+        return self.get(meme_id)
+
     def set_error(self, meme_id: int, message: str) -> None:
         cursor = self.db.execute(
             """
