@@ -143,9 +143,9 @@ async def analyze_image(image_bytes: bytes, mime_type: str) -> dict:
     async with semaphore:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
         prompt = (
-            "Analyze this static meme image for a personal meme library. "
-            "Describe what is visible, explain why it is funny, note any references, "
-            "suggest likely use cases, and provide concise searchable tags."
+            "Analyze this static meme image for a personal meme library."
+            "Describe what is visible, explain why it is funny (or meme-worthy), note any cultural/pop-culture references."
+            "suggest likely cases when this meme might be shared, and provide concise searchable tags."
         )
         prompt_part: ChatCompletionContentPartTextParam = {"type": "text", "text": prompt}
         image_part: ChatCompletionContentPartImageParam = {
