@@ -1,16 +1,16 @@
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
+import sqlite3
 
 from .config import settings
 
-engine = create_engine(f"sqlite:///{settings.db_path}", connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def _configure_connection(connection: sqlite3.Connection) -> sqlite3.Connection:
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA journal_mode=WAL;")
+    connection.execute("PRAGMA busy_timeout=5000;")
+    connection.execute("PRAGMA foreign_keys=ON;")
+    return connection
 
 
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, _connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL;")
-    cursor.execute("PRAGMA busy_timeout=5000;")
-    cursor.execute("PRAGMA foreign_keys=ON;")
-    cursor.close()
+def SessionLocal() -> sqlite3.Connection:
+    connection = sqlite3.connect(settings.db_path, check_same_thread=False)
+    return _configure_connection(connection)

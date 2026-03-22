@@ -1,11 +1,8 @@
 import json
 import re
+import sqlite3
 from collections.abc import Mapping
 from typing import Any, Iterable
-
-from sqlalchemy import text
-from sqlalchemy.engine import RowMapping
-from sqlalchemy.orm import Session
 
 from .models import Meme
 
@@ -13,7 +10,7 @@ FTS_TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
 
 
 class MemeRepository:
-    def __init__(self, db: Session):
+    def __init__(self, db: sqlite3.Connection):
         self.db = db
 
     @staticmethod
@@ -30,10 +27,14 @@ class MemeRepository:
             return []
         return parsed if isinstance(parsed, list) else []
 
+    @staticmethod
+    def _row_to_meme(row: sqlite3.Row) -> Meme:
+        return Meme(**dict(row))
+
     @classmethod
     def _api_payload(
         cls,
-        meme: Meme | Mapping[str, Any] | RowMapping,
+        meme: Meme | Mapping[str, Any],
         *,
         include_rank: bool = False,
     ) -> dict[str, Any]:
@@ -65,57 +66,138 @@ class MemeRepository:
         return MemeRepository._api_payload(meme)
 
     def create_meme(self, **kwargs) -> Meme:
-        meme = Meme(**kwargs)
-        self.db.add(meme)
+        payload = {
+            "filename": kwargs["filename"],
+            "mime_type": kwargs["mime_type"],
+            "sha256": kwargs["sha256"],
+            "image_data": kwargs["image_data"],
+            "uploaded_at": kwargs["uploaded_at"],
+            "description": kwargs.get("description"),
+            "why_funny": kwargs.get("why_funny"),
+            "references": kwargs.get("references"),
+            "use_cases": kwargs.get("use_cases"),
+            "tags": kwargs.get("tags"),
+            "analysis_status": kwargs.get("analysis_status", "pending"),
+            "analysis_error": kwargs.get("analysis_error"),
+        }
+        cursor = self.db.execute(
+            """
+            INSERT INTO memes (
+                filename,
+                mime_type,
+                sha256,
+                image_data,
+                uploaded_at,
+                description,
+                why_funny,
+                "references",
+                use_cases,
+                tags,
+                analysis_status,
+                analysis_error
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["filename"],
+                payload["mime_type"],
+                payload["sha256"],
+                payload["image_data"],
+                payload["uploaded_at"],
+                payload["description"],
+                payload["why_funny"],
+                payload["references"],
+                payload["use_cases"],
+                payload["tags"],
+                payload["analysis_status"],
+                payload["analysis_error"],
+            ),
+        )
         self.db.commit()
-        self.db.refresh(meme)
+        row_id = cursor.lastrowid
+        if row_id is None:
+            raise RuntimeError("SQLite did not return a row id for the new meme.")
+        meme = self.get(row_id)
+        if meme is None:
+            raise RuntimeError("Failed to load newly created meme.")
         return meme
 
     def get(self, meme_id: int) -> Meme | None:
-        return self.db.get(Meme, meme_id)
+        row = self.db.execute("SELECT * FROM memes WHERE id = ?", (meme_id,)).fetchone()
+        if row is None:
+            return None
+        return self._row_to_meme(row)
 
     def list_memes(self, page: int, page_size: int) -> tuple[list[dict], int]:
-        q = self.db.query(Meme).order_by(Meme.uploaded_at.desc(), Meme.id.desc())
-        total = q.count()
-        items = q.offset((page - 1) * page_size).limit(page_size).all()
-        return [self._api_payload(x) for x in items], total
+        total_row = self.db.execute("SELECT COUNT(*) AS total FROM memes").fetchone()
+        total = int(total_row["total"]) if total_row is not None else 0
+        rows = self.db.execute(
+            """
+            SELECT * FROM memes
+            ORDER BY uploaded_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (page_size, (page - 1) * page_size),
+        ).fetchall()
+        return [self._api_payload(self._row_to_meme(row)) for row in rows], total
 
     def pending_statuses(self) -> list[dict]:
-        rows = (
-            self.db.query(Meme.id, Meme.analysis_status)
-            .filter(Meme.analysis_status == "pending")
-            .order_by(Meme.id.desc())
-            .all()
-        )
-        return [{"id": r.id, "analysis_status": r.analysis_status} for r in rows]
+        rows = self.db.execute(
+            """
+            SELECT id, analysis_status
+            FROM memes
+            WHERE analysis_status = ?
+            ORDER BY id DESC
+            """,
+            ("pending",),
+        ).fetchall()
+        return [{"id": row["id"], "analysis_status": row["analysis_status"]} for row in rows]
 
     def update_analysis(self, meme_id: int, payload: dict, status: str, error: str | None = None) -> None:
-        meme = self.get(meme_id)
-        if not meme:
-            return
-        meme.description = payload.get("description")
-        meme.why_funny = payload.get("why_funny")
-        meme.references = payload.get("references")
-        meme.use_cases = payload.get("use_cases")
-        meme.tags = json.dumps(payload.get("tags", []))
-        meme.analysis_status = status
-        meme.analysis_error = error
-        self.db.commit()
+        cursor = self.db.execute(
+            """
+            UPDATE memes
+            SET description = ?,
+                why_funny = ?,
+                "references" = ?,
+                use_cases = ?,
+                tags = ?,
+                analysis_status = ?,
+                analysis_error = ?
+            WHERE id = ?
+            """,
+            (
+                payload.get("description"),
+                payload.get("why_funny"),
+                payload.get("references"),
+                payload.get("use_cases"),
+                json.dumps(payload.get("tags", [])),
+                status,
+                error,
+                meme_id,
+            ),
+        )
+        if cursor.rowcount:
+            self.db.commit()
 
     def set_error(self, meme_id: int, message: str) -> None:
-        meme = self.get(meme_id)
-        if meme:
-            meme.analysis_status = "error"
-            meme.analysis_error = message[:200]
+        cursor = self.db.execute(
+            """
+            UPDATE memes
+            SET analysis_status = ?, analysis_error = ?
+            WHERE id = ?
+            """,
+            ("error", message[:200], meme_id),
+        )
+        if cursor.rowcount:
             self.db.commit()
 
     def delete(self, meme_id: int) -> bool:
-        meme = self.get(meme_id)
-        if not meme:
-            return False
-        self.db.delete(meme)
-        self.db.commit()
-        return True
+        cursor = self.db.execute("DELETE FROM memes WHERE id = ?", (meme_id,))
+        deleted = cursor.rowcount > 0
+        if deleted:
+            self.db.commit()
+        return deleted
 
     @staticmethod
     def _build_fts_query(query: str) -> str:
@@ -132,12 +214,13 @@ class MemeRepository:
         if not fts_query:
             return []
 
-        sql = text(
+        rows = self.db.execute(
             """
             SELECT
                    m.id,
                    m.filename,
                    m.mime_type,
+                   m.sha256,
                    m.uploaded_at,
                    m.description,
                    m.why_funny,
@@ -149,18 +232,33 @@ class MemeRepository:
                    bm25(memes_fts) AS score
             FROM memes_fts
             JOIN memes m ON m.id = memes_fts.rowid
-            WHERE memes_fts MATCH :q
+            WHERE memes_fts MATCH ?
             ORDER BY score
-            LIMIT :limit
-            """
-        )
-        rows = self.db.execute(sql, {"q": fts_query, "limit": limit}).mappings().all()
-        return [self._api_payload(r, include_rank=True) for r in rows]
+            LIMIT ?
+            """,
+            (fts_query, limit),
+        ).fetchall()
+        return [self._api_payload(dict(row), include_rank=True) for row in rows]
 
     def get_for_llm(self, ids: Iterable[int]) -> list[dict]:
-        rows = self.db.query(Meme).filter(Meme.id.in_(list(ids))).all()
-        return [self._api_payload(x) for x in rows]
+        id_list = list(ids)
+        if not id_list:
+            return []
+        placeholders = ", ".join("?" for _ in id_list)
+        rows = self.db.execute(
+            f"SELECT * FROM memes WHERE id IN ({placeholders})",
+            id_list,
+        ).fetchall()
+        return [self._api_payload(self._row_to_meme(row)) for row in rows]
 
     def pending_ids(self) -> list[int]:
-        rows = self.db.query(Meme.id).filter(Meme.analysis_status == "pending").all()
-        return [r.id for r in rows]
+        rows = self.db.execute(
+            """
+            SELECT id
+            FROM memes
+            WHERE analysis_status = ?
+            ORDER BY id DESC
+            """,
+            ("pending",),
+        ).fetchall()
+        return [int(row["id"]) for row in rows]

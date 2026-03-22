@@ -65,7 +65,7 @@ def load_test_modules(monkeypatch, tmp_path, *, api_key="test-key"):
     monkeypatch.setenv("OPENAI_MODEL", "fake-model")
     monkeypatch.setenv("OPENAI_API_KEY", api_key)
 
-    from app import config, database, init_db, llm, main, repository
+    from backend.app import config, database, init_db, llm, main, repository
 
     reload(config)
     reload(database)

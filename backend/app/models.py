@@ -1,24 +1,18 @@
-from sqlalchemy import LargeBinary, Text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from dataclasses import dataclass
 
 
-class Base(DeclarativeBase):
-    pass
-
-
-class Meme(Base):
-    __tablename__ = "memes"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    filename: Mapped[str] = mapped_column(Text, nullable=False)
-    mime_type: Mapped[str] = mapped_column(Text, nullable=False)
-    sha256: Mapped[str] = mapped_column(Text, nullable=False)
-    image_data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    uploaded_at: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text)
-    why_funny: Mapped[str | None] = mapped_column(Text)
-    references: Mapped[str | None] = mapped_column(Text)
-    use_cases: Mapped[str | None] = mapped_column(Text)
-    tags: Mapped[str | None] = mapped_column(Text)
-    analysis_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
-    analysis_error: Mapped[str | None] = mapped_column(Text)
+@dataclass(slots=True)
+class Meme:
+    id: int
+    filename: str
+    mime_type: str
+    sha256: str
+    image_data: bytes
+    uploaded_at: str
+    description: str | None = None
+    why_funny: str | None = None
+    references: str | None = None
+    use_cases: str | None = None
+    tags: str | None = None
+    analysis_status: str = "pending"
+    analysis_error: str | None = None

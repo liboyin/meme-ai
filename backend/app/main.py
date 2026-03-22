@@ -5,12 +5,12 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from io import BytesIO
+from sqlite3 import Connection
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import SessionLocal
@@ -150,7 +150,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 @app.post("/api/memes/upload")
-async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
+async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...), db: Connection = Depends(get_db)):
     if len(files) > 50:
         raise HTTPException(status_code=413, detail="Maximum 50 files per request")
 
@@ -184,7 +184,7 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
 
 
 @app.get("/api/memes")
-def list_memes(page: int = 1, page_size: int = 40, db: Session = Depends(get_db)):
+def list_memes(page: int = 1, page_size: int = 40, db: Connection = Depends(get_db)):
     page_size = max(1, min(page_size, 100))
     repo = MemeRepository(db)
     items, total = repo.list_memes(page, page_size)
@@ -192,13 +192,13 @@ def list_memes(page: int = 1, page_size: int = 40, db: Session = Depends(get_db)
 
 
 @app.get("/api/memes/pending")
-def pending(db: Session = Depends(get_db)):
+def pending(db: Connection = Depends(get_db)):
     pending_items = MemeRepository(db).pending_statuses()
     return {"items": recent_status_snapshot(pending_items)}
 
 
 @app.get("/api/memes/{meme_id}/image")
-def image(meme_id: int, db: Session = Depends(get_db)):
+def image(meme_id: int, db: Connection = Depends(get_db)):
     meme = MemeRepository(db).get(meme_id)
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
@@ -206,7 +206,7 @@ def image(meme_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/memes/{meme_id}")
-def get_meme(meme_id: int, db: Session = Depends(get_db)):
+def get_meme(meme_id: int, db: Connection = Depends(get_db)):
     repo = MemeRepository(db)
     meme = repo.get(meme_id)
     if not meme:
@@ -215,21 +215,21 @@ def get_meme(meme_id: int, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/memes/{meme_id}")
-def delete_meme(meme_id: int, db: Session = Depends(get_db)):
+def delete_meme(meme_id: int, db: Connection = Depends(get_db)):
     if not MemeRepository(db).delete(meme_id):
         raise HTTPException(status_code=404, detail="Not found")
     return {"deleted": True}
 
 
 @app.get("/api/search")
-def fuzzy_search(q: str, mode: str = "fuzzy", db: Session = Depends(get_db)):
+def fuzzy_search(q: str, mode: str = "fuzzy", db: Connection = Depends(get_db)):
     if mode != "fuzzy":
         raise HTTPException(status_code=400, detail="Unsupported mode")
     return {"items": MemeRepository(db).search_fts(q, limit=20)}
 
 
 @app.post("/api/search/llm")
-async def ai_search(body: LlmSearchRequest, db: Session = Depends(get_db)):
+async def ai_search(body: LlmSearchRequest, db: Connection = Depends(get_db)):
     if not settings.openai_api_key:
         return llm_unavailable_response()
     repo = MemeRepository(db)
