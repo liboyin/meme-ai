@@ -16,7 +16,7 @@ from .config import settings
 from .database import SessionLocal
 from .init_db import init_db
 from .llm import LLMUnavailableError, analyze_image, llm_rank
-from .repository import MemeRepository
+from .repository import DuplicateMemeError, MemeRepository
 from .schemas import LlmSearchRequest, MemeIndexFieldsIn
 
 logger = logging.getLogger(__name__)
@@ -187,6 +187,10 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
             remember_status(meme.id, "pending")
             background_tasks.add_task(analyze_and_store, meme.id)
             items.append({"filename": file.filename, "status": "created", "id": meme.id})
+        except DuplicateMemeError as exc:
+            if single_file_request:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            items.append({"filename": file.filename, "status": "error", "error": str(exc)})
         except HTTPException as exc:
             if single_file_request:
                 raise exc

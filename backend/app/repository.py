@@ -9,6 +9,13 @@ from .models import Meme
 FTS_TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
 
 
+class DuplicateMemeError(ValueError):
+    def __init__(self, sha256: str, *, existing_id: int | None = None):
+        self.sha256 = sha256
+        self.existing_id = existing_id
+        super().__init__("A meme with the same sha256 already exists.")
+
+
 class MemeRepository:
     def __init__(self, db: sqlite3.Connection):
         self.db = db
@@ -65,6 +72,12 @@ class MemeRepository:
     def _to_dict(meme: Meme) -> dict[str, Any]:
         return MemeRepository._api_payload(meme)
 
+    def get_by_sha256(self, sha256: str) -> Meme | None:
+        row = self.db.execute("SELECT * FROM memes WHERE sha256 = ?", (sha256,)).fetchone()
+        if row is None:
+            return None
+        return self._row_to_meme(row)
+
     def create_meme(self, **kwargs) -> Meme:
         payload = {
             "filename": kwargs["filename"],
@@ -80,39 +93,48 @@ class MemeRepository:
             "analysis_status": kwargs.get("analysis_status", "pending"),
             "analysis_error": kwargs.get("analysis_error"),
         }
-        cursor = self.db.execute(
-            """
-            INSERT INTO memes (
-                filename,
-                mime_type,
-                sha256,
-                image_data,
-                uploaded_at,
-                description,
-                why_funny,
-                "references",
-                use_cases,
-                tags,
-                analysis_status,
-                analysis_error
+        try:
+            cursor = self.db.execute(
+                """
+                INSERT INTO memes (
+                    filename,
+                    mime_type,
+                    sha256,
+                    image_data,
+                    uploaded_at,
+                    description,
+                    why_funny,
+                    "references",
+                    use_cases,
+                    tags,
+                    analysis_status,
+                    analysis_error
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["filename"],
+                    payload["mime_type"],
+                    payload["sha256"],
+                    payload["image_data"],
+                    payload["uploaded_at"],
+                    payload["description"],
+                    payload["why_funny"],
+                    payload["references"],
+                    payload["use_cases"],
+                    payload["tags"],
+                    payload["analysis_status"],
+                    payload["analysis_error"],
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                payload["filename"],
-                payload["mime_type"],
-                payload["sha256"],
-                payload["image_data"],
-                payload["uploaded_at"],
-                payload["description"],
-                payload["why_funny"],
-                payload["references"],
-                payload["use_cases"],
-                payload["tags"],
-                payload["analysis_status"],
-                payload["analysis_error"],
-            ),
-        )
+        except sqlite3.IntegrityError as exc:
+            if "sha256" in str(exc).lower():
+                existing = self.get_by_sha256(payload["sha256"])
+                raise DuplicateMemeError(
+                    payload["sha256"],
+                    existing_id=existing.id if existing is not None else None,
+                ) from exc
+            raise
         self.db.commit()
         row_id = cursor.lastrowid
         if row_id is None:

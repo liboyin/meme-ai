@@ -179,6 +179,75 @@ def test_multi_upload_allows_partial_success(monkeypatch, tmp_path):
     assert "Unsupported file type" in items[1]["error"]
 
 
+def test_upload_rejects_duplicate_sha256_with_409(monkeypatch, tmp_path):
+    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
+        monkeypatch,
+        tmp_path,
+        api_key="",
+    )
+
+    raw = image_bytes()
+
+    with TestClient(main.app) as client:
+        first = client.post(
+            "/api/memes/upload",
+            files=[("files", ("first.png", raw, "image/png"))],
+        )
+        assert first.status_code == 200
+
+        duplicate = client.post(
+            "/api/memes/upload",
+            files=[("files", ("duplicate-name.png", raw, "image/png"))],
+        )
+
+        assert duplicate.status_code == 409
+        assert duplicate.json()["detail"] == "A meme with the same sha256 already exists."
+
+        listing = client.get("/api/memes")
+        assert listing.status_code == 200
+        assert listing.json()["total"] == 1
+
+
+def test_multi_upload_reports_duplicate_sha256_as_item_error(monkeypatch, tmp_path):
+    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
+        monkeypatch,
+        tmp_path,
+        api_key="",
+    )
+
+    duplicate_bytes = image_bytes()
+    fresh_bytes = image_bytes(color=(0, 255, 0))
+
+    with TestClient(main.app) as client:
+        first = client.post(
+            "/api/memes/upload",
+            files=[("files", ("seed.png", duplicate_bytes, "image/png"))],
+        )
+        assert first.status_code == 200
+
+        response = client.post(
+            "/api/memes/upload",
+            files=[
+                ("files", ("dupe.png", duplicate_bytes, "image/png")),
+                ("files", ("fresh.png", fresh_bytes, "image/png")),
+            ],
+        )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [
+        {
+            "filename": "dupe.png",
+            "status": "error",
+            "error": "A meme with the same sha256 already exists.",
+        },
+        {
+            "filename": "fresh.png",
+            "status": "created",
+            "id": 2,
+        },
+    ]
+
+
 def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(monkeypatch, tmp_path):
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,

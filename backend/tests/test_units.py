@@ -228,6 +228,39 @@ def test_repository_edge_cases(monkeypatch, tmp_path):
     db.close()
 
 
+def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
+    modules = load_test_modules(monkeypatch, tmp_path)
+    modules.init_db.init_db()
+
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+
+    repo.create_meme(
+        filename="first.png",
+        mime_type="image/png",
+        sha256="same-hash",
+        image_data=image_bytes(),
+        uploaded_at=datetime.now(timezone.utc).isoformat(),
+        analysis_status="pending",
+    )
+
+    with pytest.raises(modules.repository.DuplicateMemeError) as duplicate:
+        repo.create_meme(
+            filename="second.png",
+            mime_type="image/png",
+            sha256="same-hash",
+            image_data=image_bytes(color=(0, 255, 0)),
+            uploaded_at=datetime.now(timezone.utc).isoformat(),
+            analysis_status="pending",
+        )
+
+    assert str(duplicate.value) == "A meme with the same sha256 already exists."
+    existing = repo.get_by_sha256("same-hash")
+    assert existing is not None
+    assert existing.filename == "first.png"
+    db.close()
+
+
 @pytest.mark.anyio
 async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch, tmp_path):
     modules = load_test_modules(monkeypatch, tmp_path)

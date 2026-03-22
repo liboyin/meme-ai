@@ -1,3 +1,5 @@
+import sqlite3
+
 from .database import SessionLocal
 
 
@@ -10,7 +12,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT NOT NULL,
                 mime_type TEXT NOT NULL,
-                sha256 TEXT NOT NULL,
+                sha256 TEXT NOT NULL UNIQUE,
                 image_data BLOB NOT NULL,
                 uploaded_at TEXT NOT NULL,
                 description TEXT,
@@ -23,6 +25,32 @@ def init_db() -> None:
             )
             """
         )
+        try:
+            db.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_memes_sha256
+                ON memes (sha256)
+                """
+            )
+        except sqlite3.IntegrityError as exc:
+            duplicate_rows = db.execute(
+                """
+                SELECT sha256, COUNT(*) AS duplicate_count
+                FROM memes
+                GROUP BY sha256
+                HAVING COUNT(*) > 1
+                ORDER BY duplicate_count DESC, sha256
+                LIMIT 3
+                """
+            ).fetchall()
+            duplicate_preview = ", ".join(
+                f"{row['sha256']} ({row['duplicate_count']})"
+                for row in duplicate_rows
+            ) or "unknown duplicates"
+            raise RuntimeError(
+                "Cannot enforce unique meme sha256 values until duplicate rows are removed: "
+                f"{duplicate_preview}"
+            ) from exc
         # Recreate the derived FTS table so schema changes are applied to existing DBs.
         db.execute("DROP TABLE IF EXISTS memes_fts")
         db.execute(
