@@ -32,7 +32,6 @@ export default function MemeDetailModal({
 
   useEffect(() => {
     setIsEditing(false)
-    setForm(buildFormState(detail))
   }, [detailId])
 
   useEffect(() => {

@@ -297,4 +297,61 @@ describe('MemeDetailModal', () => {
     expect(screen.queryByText('Save metadata')).toBeNull()
     expect(screen.getByText('seed text')).toBeTruthy()
   })
+
+  it('resets edit mode and shows the next meme when detail id changes', () => {
+    const { rerender } = render(
+      createElement(MemeDetailModal, {
+        detailId: 1,
+        detail: {
+          filename: 'first.png',
+          analysis_status: 'done',
+          analysis_error: null,
+          mime_type: 'image/png',
+          description: 'first description',
+          why_funny: '',
+          references: '',
+          use_cases: '',
+          tags: []
+        },
+        detailLoading: false,
+        detailSaving: false,
+        detailError: '',
+        onClose: vi.fn(),
+        onSave: vi.fn(),
+        onDelete: vi.fn()
+      })
+    )
+
+    fireEvent.click(screen.getByText('Edit fields'))
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'draft for first meme' }
+    })
+
+    rerender(
+      createElement(MemeDetailModal, {
+        detailId: 2,
+        detail: {
+          filename: 'second.png',
+          analysis_status: 'done',
+          analysis_error: null,
+          mime_type: 'image/png',
+          description: 'second description',
+          why_funny: '',
+          references: '',
+          use_cases: '',
+          tags: []
+        },
+        detailLoading: false,
+        detailSaving: false,
+        detailError: '',
+        onClose: vi.fn(),
+        onSave: vi.fn(),
+        onDelete: vi.fn()
+      })
+    )
+
+    expect(screen.queryByText('Save metadata')).toBeNull()
+    expect(screen.getByText('second description')).toBeTruthy()
+    expect(screen.queryByDisplayValue('draft for first meme')).toBeNull()
+  })
 })
