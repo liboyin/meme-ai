@@ -7,6 +7,7 @@ class Meme:
     filename: str
     mime_type: str
     sha256: str
+    phash: str
     image_data: bytes
     uploaded_at: str
     description: str | None = None

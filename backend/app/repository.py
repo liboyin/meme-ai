@@ -83,6 +83,7 @@ class MemeRepository:
             "filename": kwargs["filename"],
             "mime_type": kwargs["mime_type"],
             "sha256": kwargs["sha256"],
+            "phash": kwargs["phash"],
             "image_data": kwargs["image_data"],
             "uploaded_at": kwargs["uploaded_at"],
             "description": kwargs.get("description"),
@@ -100,6 +101,7 @@ class MemeRepository:
                     filename,
                     mime_type,
                     sha256,
+                    phash,
                     image_data,
                     uploaded_at,
                     description,
@@ -110,12 +112,13 @@ class MemeRepository:
                     analysis_status,
                     analysis_error
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["filename"],
                     payload["mime_type"],
                     payload["sha256"],
+                    payload["phash"],
                     payload["image_data"],
                     payload["uploaded_at"],
                     payload["description"],

@@ -17,6 +17,11 @@ def image_bytes(format_name="PNG", color=(255, 0, 0)):
     return buffer.getvalue()
 
 
+def image_bytes_with_phash(modules, format_name="PNG", color=(255, 0, 0)):
+    raw = image_bytes(format_name=format_name, color=color)
+    return raw, modules.main.compute_image_phash(raw)
+
+
 def fake_response(content):
     return SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
@@ -173,12 +178,15 @@ def test_repository_edge_cases(monkeypatch, tmp_path):
 
     db = modules.database.SessionLocal()
     repo = modules.repository.MemeRepository(db)
+    created_bytes, created_phash = image_bytes_with_phash(modules)
+    pending_bytes, pending_phash = image_bytes_with_phash(modules, color=(0, 255, 0))
 
     created = repo.create_meme(
         filename="done.png",
         mime_type="image/png",
         sha256="abc123",
-        image_data=image_bytes(),
+        phash=created_phash,
+        image_data=created_bytes,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
         description="already indexed",
         why_funny="because timing",
@@ -191,7 +199,8 @@ def test_repository_edge_cases(monkeypatch, tmp_path):
         filename="pending.png",
         mime_type="image/png",
         sha256="def456",
-        image_data=image_bytes(color=(0, 255, 0)),
+        phash=pending_phash,
+        image_data=pending_bytes,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
         analysis_status="pending",
     )
@@ -234,12 +243,15 @@ def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
 
     db = modules.database.SessionLocal()
     repo = modules.repository.MemeRepository(db)
+    first_bytes, first_phash = image_bytes_with_phash(modules)
+    second_bytes, second_phash = image_bytes_with_phash(modules, color=(0, 255, 0))
 
     repo.create_meme(
         filename="first.png",
         mime_type="image/png",
         sha256="same-hash",
-        image_data=image_bytes(),
+        phash=first_phash,
+        image_data=first_bytes,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
         analysis_status="pending",
     )
@@ -249,7 +261,8 @@ def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
             filename="second.png",
             mime_type="image/png",
             sha256="same-hash",
-            image_data=image_bytes(color=(0, 255, 0)),
+            phash=second_phash,
+            image_data=second_bytes,
             uploaded_at=datetime.now(timezone.utc).isoformat(),
             analysis_status="pending",
         )
@@ -258,6 +271,20 @@ def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
     existing = repo.get_by_sha256("same-hash")
     assert existing is not None
     assert existing.filename == "first.png"
+    db.close()
+
+
+def test_init_db_adds_phash_column_and_index(monkeypatch, tmp_path):
+    modules = load_test_modules(monkeypatch, tmp_path)
+    modules.init_db.init_db()
+
+    db = modules.database.SessionLocal()
+    columns = {row["name"]: row for row in db.execute("PRAGMA table_info(memes)").fetchall()}
+    indexes = {row["name"] for row in db.execute("PRAGMA index_list(memes)").fetchall()}
+
+    assert "phash" in columns
+    assert columns["phash"]["notnull"] == 1
+    assert "idx_memes_phash" in indexes
     db.close()
 
 
@@ -270,11 +297,13 @@ async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch
 
     db = modules.database.SessionLocal()
     repo = modules.repository.MemeRepository(db)
+    raw, phash = image_bytes_with_phash(modules)
     meme = repo.create_meme(
         filename="broken.png",
         mime_type="image/png",
         sha256="oops",
-        image_data=image_bytes(),
+        phash=phash,
+        image_data=raw,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
         analysis_status="pending",
     )
@@ -302,11 +331,13 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
 
     db = modules.database.SessionLocal()
     repo = modules.repository.MemeRepository(db)
+    raw, phash = image_bytes_with_phash(modules)
     meme = repo.create_meme(
         filename="manual-wins.png",
         mime_type="image/png",
         sha256="manual-wins",
-        image_data=image_bytes(),
+        phash=phash,
+        image_data=raw,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
         analysis_status="pending",
     )

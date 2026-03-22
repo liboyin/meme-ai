@@ -13,6 +13,7 @@ def init_db() -> None:
                 filename TEXT NOT NULL,
                 mime_type TEXT NOT NULL,
                 sha256 TEXT NOT NULL UNIQUE,
+                phash TEXT NOT NULL,
                 image_data BLOB NOT NULL,
                 uploaded_at TEXT NOT NULL,
                 description TEXT,
@@ -30,6 +31,12 @@ def init_db() -> None:
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_memes_sha256
                 ON memes (sha256)
+                """
+            )
+            db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memes_phash
+                ON memes (phash)
                 """
             )
         except sqlite3.IntegrityError as exc:

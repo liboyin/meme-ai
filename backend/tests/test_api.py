@@ -248,6 +248,31 @@ def test_multi_upload_reports_duplicate_sha256_as_item_error(monkeypatch, tmp_pa
     ]
 
 
+def test_upload_persists_phash(monkeypatch, tmp_path):
+    _config, database, _init_db, _llm, main, repository = load_test_modules(
+        monkeypatch,
+        tmp_path,
+        api_key="",
+    )
+
+    raw = image_bytes(color=(12, 34, 56))
+
+    with TestClient(main.app) as client:
+        upload = client.post(
+            "/api/memes/upload",
+            files=[("files", ("phash.png", raw, "image/png"))],
+        )
+
+    assert upload.status_code == 200
+    meme_id = upload.json()["items"][0]["id"]
+
+    db = database.SessionLocal()
+    stored = repository.MemeRepository(db).get(meme_id)
+    assert stored is not None
+    assert stored.phash == main.compute_image_phash(raw)
+    db.close()
+
+
 def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(monkeypatch, tmp_path):
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,
@@ -339,6 +364,7 @@ def test_startup_requeues_pending_memes(monkeypatch, tmp_path):
         filename="recovered.jpg",
         mime_type="image/jpeg",
         sha256=hashlib.sha256(raw_bytes).hexdigest(),
+        phash=main.compute_image_phash(raw_bytes),
         image_data=raw_bytes,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
         analysis_status="pending",

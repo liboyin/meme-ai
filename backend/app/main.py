@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from sqlite3 import Connection
 
+import imagehash
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -106,6 +107,11 @@ def validate_image_bytes(*, filename: str | None, mime_type: str | None, data: b
     return expected_mime_type
 
 
+def compute_image_phash(data: bytes) -> str:
+    with Image.open(BytesIO(data)) as image:
+        return str(imagehash.phash(image))
+
+
 async def analyze_and_store(meme_id: int):
     db = SessionLocal()
     repo = MemeRepository(db)
@@ -180,6 +186,7 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
                 filename=file.filename,
                 mime_type=detected_mime_type,
                 sha256=hashlib.sha256(data).hexdigest(),
+                phash=compute_image_phash(data),
                 image_data=data,
                 uploaded_at=datetime.now(timezone.utc).isoformat(),
                 analysis_status="pending",
