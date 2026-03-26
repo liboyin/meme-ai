@@ -81,6 +81,27 @@ describe('useMemesCollection', () => {
     })
   })
 
+  it('falls back to empty array and zero total when response has no items or total', async () => {
+    global.fetch.mockResolvedValueOnce(makeResponse({}))
+
+    const { result } = renderHook(() => useMemesCollection())
+
+    await waitFor(() => {
+      expect(result.current.memes).toEqual([])
+    })
+    expect(result.current.total).toBe(0)
+  })
+
+  it('sets collectionError when fetch responds with !ok', async () => {
+    global.fetch.mockResolvedValueOnce(makeResponse({}, false))
+
+    const { result } = renderHook(() => useMemesCollection())
+
+    await waitFor(() => {
+      expect(result.current.collectionError).toBe('Could not load memes.')
+    })
+  })
+
   it('ignores late collection responses after unmount', async () => {
     let resolveFetch
     global.fetch.mockImplementationOnce(
@@ -188,6 +209,151 @@ describe('useSearch', () => {
 
     expect(global.fetch).toHaveBeenCalledTimes(1)
   })
+
+  it('uses fallback message when fuzzy search response has no detail', async () => {
+    vi.useFakeTimers()
+    global.fetch.mockResolvedValueOnce(makeResponse({}, false))
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('test') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.searchError).toBe('Fuzzy search failed.')
+    expect(result.current.searchResults).toEqual([])
+  })
+
+  it('falls back to empty array when fuzzy search returns no items field', async () => {
+    vi.useFakeTimers()
+    global.fetch.mockResolvedValueOnce(makeResponse({}))
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('test') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.searchMode).toBe('fuzzy')
+    expect(result.current.searchResults).toEqual([])
+  })
+
+  it('uses fallback message when fuzzy search throws with no error.message', async () => {
+    vi.useFakeTimers()
+    global.fetch.mockRejectedValueOnce({})
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('test') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.searchError).toBe('Fuzzy search failed.')
+  })
+
+  it('uses data.detail fallback when AI search response has no error.message', async () => {
+    vi.useFakeTimers()
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1 }] }))
+      .mockResolvedValueOnce(makeResponse({ detail: 'LLM unavailable' }, false))
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('cats') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await result.current.runAiSearch()
+      await Promise.resolve()
+    })
+
+    expect(result.current.searchError).toBe('LLM unavailable')
+    expect(result.current.searchMode).toBe('llm')
+  })
+
+  it('uses the hardcoded fallback when AI search response has no error info', async () => {
+    vi.useFakeTimers()
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1 }] }))
+      .mockResolvedValueOnce(makeResponse({}, false))
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('cats') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await result.current.runAiSearch()
+      await Promise.resolve()
+    })
+
+    expect(result.current.searchError).toBe('AI search failed.')
+  })
+
+  it('falls back to empty array when AI search returns no items field', async () => {
+    vi.useFakeTimers()
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1 }] }))
+      .mockResolvedValueOnce(makeResponse({}))
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('cats') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await result.current.runAiSearch()
+      await Promise.resolve()
+    })
+
+    expect(result.current.searchMode).toBe('llm')
+    expect(result.current.searchResults).toEqual([])
+  })
+
+  it('uses fallback message when AI search throws with no error.message', async () => {
+    vi.useFakeTimers()
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1 }] }))
+      .mockRejectedValueOnce({})
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('cats') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await result.current.runAiSearch()
+      await Promise.resolve()
+    })
+
+    expect(result.current.searchError).toBe('AI search failed.')
+    expect(result.current.searchMode).toBe('llm')
+  })
 })
 
 describe('usePendingPolling', () => {
@@ -217,6 +383,109 @@ describe('usePendingPolling', () => {
       result.current.setPollingActive(false)
     })
     expect(result.current.pendingItems).toEqual([])
+    expect(result.current.pollingActive).toBe(false)
+  })
+
+  it('sets empty items when initial fetch throws', async () => {
+    global.fetch.mockRejectedValueOnce(new Error('Network error'))
+
+    const { result } = renderHook(() =>
+      usePendingPolling({ onPendingChanged: vi.fn() })
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.pendingItems).toEqual([])
+    expect(result.current.pollingActive).toBe(false)
+  })
+
+  it('polls when active, calls onPendingChanged when items change, stops when no pending items', async () => {
+    vi.useFakeTimers()
+    const onPendingChanged = vi.fn()
+
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1, analysis_status: 'pending' }] }))
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1, analysis_status: 'done' }] }))
+
+    const { result } = renderHook(() =>
+      usePendingPolling({ onPendingChanged })
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.pollingActive).toBe(true)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(onPendingChanged).toHaveBeenCalledTimes(1)
+    expect(result.current.pendingItems).toEqual([{ id: 1, analysis_status: 'done' }])
+    expect(result.current.pollingActive).toBe(false)
+  })
+
+  it('stops polling when the poll fetch throws', async () => {
+    vi.useFakeTimers()
+
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1, analysis_status: 'pending' }] }))
+      .mockRejectedValueOnce(new Error('Poll network failure'))
+
+    const { result } = renderHook(() =>
+      usePendingPolling({ onPendingChanged: vi.fn() })
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.pollingActive).toBe(true)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.pollingActive).toBe(false)
+  })
+
+  it('stops polling when the poll response is not ok', async () => {
+    vi.useFakeTimers()
+
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1, analysis_status: 'pending' }] }))
+      .mockResolvedValueOnce(makeResponse({ detail: 'Server error' }, false))
+
+    const { result } = renderHook(() =>
+      usePendingPolling({ onPendingChanged: vi.fn() })
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.pollingActive).toBe(true)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
     expect(result.current.pollingActive).toBe(false)
   })
 })
