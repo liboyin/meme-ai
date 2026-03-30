@@ -86,10 +86,6 @@ class MemeRepository:
             payload["rank"] = get("score")
         return payload
 
-    @staticmethod
-    def _to_dict(meme: Meme) -> dict[str, Any]:
-        return MemeRepository._api_payload(meme)
-
     def get_by_sha256(self, sha256: str) -> Meme | None:
         row = self.db.execute("SELECT * FROM memes WHERE sha256 = ?", (sha256,)).fetchone()
         if row is None:
@@ -160,12 +156,12 @@ class MemeRepository:
         row_id = cursor.lastrowid
         if row_id is None:
             raise RuntimeError("SQLite did not return a row id for the new meme.")
-        meme = self.get(row_id)
+        meme = self.get_full(row_id)
         if meme is None:
             raise RuntimeError("Failed to load newly created meme.")
         return meme
 
-    def get(self, meme_id: int) -> Meme | None:
+    def get_full(self, meme_id: int) -> Meme | None:
         row = self.db.execute("SELECT * FROM memes WHERE id = ?", (meme_id,)).fetchone()
         if row is None:
             return None

@@ -116,7 +116,7 @@ def compute_image_phash(data: bytes) -> str:
 async def analyze_and_store(meme_id: int):
     db = SessionLocal()
     repo = MemeRepository(db)
-    meme = repo.get(meme_id)
+    meme = repo.get_full(meme_id)
     if not meme:
         db.close()
         return
@@ -125,7 +125,7 @@ async def analyze_and_store(meme_id: int):
         return
 
     def still_pending() -> bool:
-        current = repo.get(meme_id)
+        current = repo.get_full(meme_id)
         return current is not None and current.analysis_status == "pending"
 
     if not settings.openai_api_key:
@@ -229,7 +229,7 @@ def pending(db: Connection = Depends(get_db)):
 
 @app.get("/api/memes/{meme_id}/image")
 def image(meme_id: int, db: Connection = Depends(get_db)):
-    meme = MemeRepository(db).get(meme_id)
+    meme = MemeRepository(db).get_full(meme_id)
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
     return Response(content=meme.image_data, media_type=meme.mime_type)

@@ -267,7 +267,7 @@ def test_upload_persists_phash(monkeypatch, tmp_path):
     meme_id = upload.json()["items"][0]["id"]
 
     db = database.SessionLocal()
-    stored = repository.MemeRepository(db).get(meme_id)
+    stored = repository.MemeRepository(db).get_full(meme_id)
     assert stored is not None
     assert stored.phash == main.compute_image_phash(raw)
     db.close()

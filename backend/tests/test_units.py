@@ -377,7 +377,7 @@ async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch
 
     db = modules.database.SessionLocal()
     repo = modules.repository.MemeRepository(db)
-    stored = repo.get(meme.id)
+    stored = repo.get_full(meme.id)
     assert stored.analysis_status == "error"
     assert stored.analysis_error == "analysis crashed"
     assert modules.main.recent_statuses[meme.id][0] == "error"
@@ -441,7 +441,7 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
 
     db = modules.database.SessionLocal()
     repo = modules.repository.MemeRepository(db)
-    stored = repo.get(meme.id)
+    stored = repo.get_full(meme.id)
     assert updated is not None
     assert stored.description == "User supplied description"
     assert stored.why_funny == "User supplied joke"
