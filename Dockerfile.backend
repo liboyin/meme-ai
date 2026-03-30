@@ -11,7 +11,6 @@ COPY pyproject.toml uv.lock /app/
 RUN uv sync --locked --no-dev --no-install-project
 
 COPY backend /app/backend
-COPY .env /app/.env
 
 RUN addgroup --system app && adduser --system --ingroup app app
 RUN chown -R app:app /app
