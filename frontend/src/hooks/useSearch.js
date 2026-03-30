@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-export default function useSearch({ refreshToken }) {
+export default function useSearch() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searchMode, setSearchMode] = useState('gallery')
@@ -51,7 +51,7 @@ export default function useSearch({ refreshToken }) {
       cancelled = true
       window.clearTimeout(timeoutId)
     }
-  }, [hasSearchQuery, refreshToken, searchQuery])
+  }, [hasSearchQuery, searchQuery])
 
   async function runAiSearch() {
     if (!hasSearchQuery) {

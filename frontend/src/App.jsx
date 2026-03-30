@@ -39,7 +39,7 @@ export default function App() {
     llmLoading,
     searchError,
     runAiSearch
-  } = useSearch({ refreshToken })
+  } = useSearch()
 
   const {
     uploadProgress,
