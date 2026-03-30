@@ -238,10 +238,10 @@ def image(meme_id: int, db: Connection = Depends(get_db)):
 @app.get("/api/memes/{meme_id}")
 def get_meme(meme_id: int, db: Connection = Depends(get_db)):
     repo = MemeRepository(db)
-    meme = repo.get(meme_id)
+    meme = repo.get_metadata(meme_id)
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
-    return repo._to_dict(meme)
+    return meme
 
 
 @app.put("/api/memes/{meme_id}")
@@ -251,7 +251,7 @@ def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
     remember_status(meme_id, "done")
-    return repo._to_dict(meme)
+    return meme
 
 
 @app.delete("/api/memes/{meme_id}")

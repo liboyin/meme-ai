@@ -19,6 +19,13 @@ LIST_MEME_ORDER_BY: dict[tuple[SortBy, SortOrder], str] = {
     ("phash", "desc"): "phash DESC, id DESC",
 }
 
+# All columns except image_data, used by metadata-only queries.
+_METADATA_COLUMNS = (
+    'id, filename, mime_type, sha256, phash, uploaded_at,'
+    ' description, why_funny, "references", use_cases, tags,'
+    ' analysis_status, analysis_error'
+)
+
 
 class DuplicateMemeError(ValueError):
     def __init__(self, sha256: str, *, existing_id: int | None = None):
@@ -171,6 +178,15 @@ class MemeRepository:
         except KeyError as exc:
             raise ValueError(f"Unsupported meme sort: {sort_by} {sort_order}") from exc
 
+    def get_metadata(self, meme_id: int) -> dict | None:
+        """Fetch a single meme's metadata without loading image_data."""
+        row = self.db.execute(
+            f"SELECT {_METADATA_COLUMNS} FROM memes WHERE id = ?", (meme_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._api_payload(dict(row))
+
     def list_memes(
         self,
         page: int,
@@ -184,13 +200,13 @@ class MemeRepository:
         total = int(total_row["total"]) if total_row is not None else 0
         rows = self.db.execute(
             f"""
-            SELECT * FROM memes
+            SELECT {_METADATA_COLUMNS} FROM memes
             ORDER BY {order_by}
             LIMIT ? OFFSET ?
             """,
             (page_size, (page - 1) * page_size),
         ).fetchall()
-        return [self._api_payload(self._row_to_meme(row)) for row in rows], total
+        return [self._api_payload(dict(row)) for row in rows], total
 
     def pending_statuses(self) -> list[dict]:
         rows = self.db.execute(
@@ -231,9 +247,9 @@ class MemeRepository:
         if cursor.rowcount:
             self.db.commit()
 
-    def update_search_fields(self, meme_id: int, payload: Mapping[str, Any]) -> Meme | None:
-        existing = self.get(meme_id)
-        if existing is None:
+    def update_search_fields(self, meme_id: int, payload: Mapping[str, Any]) -> dict | None:
+        exists = self.db.execute("SELECT id FROM memes WHERE id = ?", (meme_id,)).fetchone()
+        if exists is None:
             return None
 
         self.db.execute(
@@ -259,7 +275,7 @@ class MemeRepository:
             ),
         )
         self.db.commit()
-        return self.get(meme_id)
+        return self.get_metadata(meme_id)
 
     def set_error(self, meme_id: int, message: str) -> None:
         cursor = self.db.execute(
@@ -327,10 +343,10 @@ class MemeRepository:
             return []
         placeholders = ", ".join("?" for _ in id_list)
         rows = self.db.execute(
-            f"SELECT * FROM memes WHERE id IN ({placeholders})",
+            f"SELECT {_METADATA_COLUMNS} FROM memes WHERE id IN ({placeholders})",
             id_list,
         ).fetchall()
-        return [self._api_payload(self._row_to_meme(row)) for row in rows]
+        return [self._api_payload(dict(row)) for row in rows]
 
     def pending_ids(self) -> list[int]:
         rows = self.db.execute(
