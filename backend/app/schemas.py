@@ -80,6 +80,20 @@ class UploadOut(BaseModel):
     items: list[UploadItemResult]
 
 
+class MemeSearchOut(MemeOut):
+    rank: float | None = None
+    score: float | None = None
+    reason: str | None = None
+
+
+class SearchOut(BaseModel):
+    items: list[MemeSearchOut]
+
+
+class DeleteOut(BaseModel):
+    deleted: bool
+
+
 class LlmSearchRequest(BaseModel):
     query: str
     top_n: int = Field(default=20, ge=1, le=100)

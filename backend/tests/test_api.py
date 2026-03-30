@@ -237,12 +237,14 @@ def test_multi_upload_reports_duplicate_sha256_as_item_error(monkeypatch, tmp_pa
         {
             "filename": "dupe.png",
             "status": "error",
+            "id": None,
             "error": "A meme with the same sha256 already exists.",
         },
         {
             "filename": "fresh.png",
             "status": "created",
             "id": 2,
+            "error": None,
         },
     ]
 

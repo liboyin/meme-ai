@@ -18,7 +18,17 @@ from .database import SessionLocal
 from .init_db import init_db
 from .llm import LLMUnavailableError, analyze_image, llm_rank
 from .repository import DuplicateMemeError, MemeRepository, SortBy, SortOrder
-from .schemas import LlmSearchRequest, MemeIndexFieldsIn
+from .schemas import (
+    DeleteOut,
+    LlmSearchRequest,
+    MemeIndexFieldsIn,
+    MemeListOut,
+    MemeOut,
+    PendingOut,
+    SearchOut,
+    UploadOut,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -138,8 +148,8 @@ app = FastAPI(title="Meme Organiser", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-@app.post("/api/memes/upload")
-async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...), db: Connection = Depends(get_db)):
+@app.post("/api/memes/upload", response_model=UploadOut)
+async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...), db: Connection = Depends(get_db)) -> UploadOut:
     if len(files) > 50:
         raise HTTPException(status_code=413, detail="Maximum 50 files per request")
 
@@ -176,14 +186,14 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
     return {"items": items}
 
 
-@app.get("/api/memes")
+@app.get("/api/memes", response_model=MemeListOut)
 def list_memes(
     page: int = 1,
     page_size: int = 40,
     sort_by: Annotated[SortBy, Query()] = "uploaded_at",
     sort_order: Annotated[SortOrder, Query()] = "desc",
     db: Connection = Depends(get_db),
-):
+) -> MemeListOut:
     page = max(1, page)
     page_size = max(1, min(page_size, 100))
     repo = MemeRepository(db)
@@ -191,21 +201,21 @@ def list_memes(
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-@app.get("/api/memes/pending")
-def pending(db: Connection = Depends(get_db)):
+@app.get("/api/memes/pending", response_model=PendingOut)
+def pending(db: Connection = Depends(get_db)) -> PendingOut:
     return {"items": MemeRepository(db).pending_statuses()}
 
 
-@app.get("/api/memes/{meme_id}/image")
-def image(meme_id: int, db: Connection = Depends(get_db)):
+@app.get("/api/memes/{meme_id}/image", response_class=Response)
+def image(meme_id: int, db: Connection = Depends(get_db)) -> Response:
     meme = MemeRepository(db).get_full(meme_id)
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
     return Response(content=meme.image_data, media_type=meme.mime_type)
 
 
-@app.get("/api/memes/{meme_id}")
-def get_meme(meme_id: int, db: Connection = Depends(get_db)):
+@app.get("/api/memes/{meme_id}", response_model=MemeOut)
+def get_meme(meme_id: int, db: Connection = Depends(get_db)) -> MemeOut:
     repo = MemeRepository(db)
     meme = repo.get_metadata(meme_id)
     if not meme:
@@ -213,8 +223,8 @@ def get_meme(meme_id: int, db: Connection = Depends(get_db)):
     return meme
 
 
-@app.put("/api/memes/{meme_id}")
-def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(get_db)):
+@app.put("/api/memes/{meme_id}", response_model=MemeOut)
+def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(get_db)) -> MemeOut:
     repo = MemeRepository(db)
     meme = repo.update_search_fields(meme_id, body.model_dump())
     if not meme:
@@ -222,22 +232,22 @@ def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(
     return meme
 
 
-@app.delete("/api/memes/{meme_id}")
-def delete_meme(meme_id: int, db: Connection = Depends(get_db)):
+@app.delete("/api/memes/{meme_id}", response_model=DeleteOut)
+def delete_meme(meme_id: int, db: Connection = Depends(get_db)) -> DeleteOut:
     if not MemeRepository(db).delete(meme_id):
         raise HTTPException(status_code=404, detail="Not found")
     return {"deleted": True}
 
 
-@app.get("/api/search")
-def fuzzy_search(q: str, mode: str = "fuzzy", db: Connection = Depends(get_db)):
+@app.get("/api/search", response_model=SearchOut)
+def fuzzy_search(q: str, mode: str = "fuzzy", db: Connection = Depends(get_db)) -> SearchOut:
     if mode != "fuzzy":
         raise HTTPException(status_code=400, detail="Unsupported mode")
     return {"items": MemeRepository(db).search_fts(q, limit=20)}
 
 
-@app.post("/api/search/llm")
-async def ai_search(body: LlmSearchRequest, db: Connection = Depends(get_db)):
+@app.post("/api/search/llm", response_model=SearchOut)
+async def ai_search(body: LlmSearchRequest, db: Connection = Depends(get_db)) -> SearchOut | JSONResponse:
     if not settings.openai_api_key:
         return llm_unavailable_response()
     repo = MemeRepository(db)
@@ -256,5 +266,5 @@ async def ai_search(body: LlmSearchRequest, db: Connection = Depends(get_db)):
 
 
 @app.exception_handler(LLMUnavailableError)
-async def llm_unavailable_handler(_request, _exc):
+async def llm_unavailable_handler(_request: object, _exc: LLMUnavailableError) -> JSONResponse:
     return llm_unavailable_response()
