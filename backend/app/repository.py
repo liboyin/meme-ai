@@ -209,10 +209,9 @@ class MemeRepository:
             """
             SELECT id, analysis_status
             FROM memes
-            WHERE analysis_status = ?
+            WHERE analysis_status IN ('pending', 'error')
             ORDER BY id DESC
-            """,
-            ("pending",),
+            """
         ).fetchall()
         return [{"id": row["id"], "analysis_status": row["analysis_status"]} for row in rows]
 

@@ -74,7 +74,6 @@ def load_test_modules(monkeypatch, tmp_path, *, api_key="test-key"):
     reload(llm)
     reload(main)
 
-    main.recent_statuses.clear()
     if api_key:
         monkeypatch.setattr(llm, "_client", lambda: FakeClient())
 

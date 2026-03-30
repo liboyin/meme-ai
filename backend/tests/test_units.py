@@ -43,7 +43,6 @@ def load_test_modules(monkeypatch, tmp_path, *, api_key="test-key"):
     reload(llm)
     reload(main)
 
-    main.recent_statuses.clear()
     return SimpleNamespace(
         config=config,
         database=database,
@@ -156,20 +155,6 @@ def test_validate_image_bytes_and_recent_status_snapshot(monkeypatch, tmp_path):
         )
     assert mismatched_mime.value.status_code == 415
 
-    main.recent_statuses.update(
-        {
-            2: ("done", 970),
-            3: ("error", 700),
-        }
-    )
-    monkeypatch.setattr(main.time, "time", lambda: 1000)
-
-    snapshot = main.recent_status_snapshot([{"id": 1, "analysis_status": "pending"}])
-    assert snapshot == [
-        {"id": 2, "analysis_status": "done"},
-        {"id": 1, "analysis_status": "pending"},
-    ]
-    assert 3 not in main.recent_statuses
 
 
 def test_repository_edge_cases(monkeypatch, tmp_path):
@@ -380,7 +365,6 @@ async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch
     stored = repo.get_full(meme.id)
     assert stored.analysis_status == "error"
     assert stored.analysis_error == "analysis crashed"
-    assert modules.main.recent_statuses[meme.id][0] == "error"
     db.close()
 
 

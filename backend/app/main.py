@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import logging
-import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from io import BytesIO
@@ -29,9 +28,6 @@ ALLOWED_MIME = {
     "JPEG": "image/jpeg",
     "WEBP": "image/webp",
 }
-RECENT_STATUS_WINDOW_SECONDS = 180
-
-recent_statuses: dict[int, tuple[str, float]] = {}
 
 
 def get_db():
@@ -40,28 +36,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def remember_status(meme_id: int, status: str) -> None:
-    recent_statuses[meme_id] = (status, time.time())
-
-
-def recent_status_snapshot(pending_items: list[dict]) -> list[dict]:
-    now = time.time()
-    items_by_id = {item["id"]: item for item in pending_items}
-
-    expired_ids = [
-        meme_id
-        for meme_id, (_, updated_at) in recent_statuses.items()
-        if now - updated_at > RECENT_STATUS_WINDOW_SECONDS
-    ]
-    for meme_id in expired_ids:
-        recent_statuses.pop(meme_id, None)
-
-    for meme_id, (status, _updated_at) in recent_statuses.items():
-        items_by_id[meme_id] = {"id": meme_id, "analysis_status": status}
-
-    return list(sorted(items_by_id.values(), key=lambda item: item["id"], reverse=True))
 
 
 def llm_unavailable_response() -> JSONResponse:
@@ -131,19 +105,16 @@ async def analyze_and_store(meme_id: int):
     if not settings.openai_api_key:
         if still_pending():
             repo.set_error(meme_id, "LLM features are unavailable because OPENAI_API_KEY is not configured.")
-            remember_status(meme_id, "error")
         db.close()
         return
     try:
         payload = await analyze_image(meme.image_data, meme.mime_type)
         if still_pending():
             repo.update_analysis(meme_id, payload, "done")
-            remember_status(meme_id, "done")
     except Exception as exc:
         logger.exception("Meme analysis failed for meme_id=%s", meme_id)
         if still_pending():
             repo.set_error(meme_id, str(exc))
-            remember_status(meme_id, "error")
     finally:
         db.close()
 
@@ -192,7 +163,6 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
                 uploaded_at=datetime.now(timezone.utc).isoformat(),
                 analysis_status="pending",
             )
-            remember_status(meme.id, "pending")
             background_tasks.add_task(analyze_and_store, meme.id)
             items.append({"filename": file.filename, "status": "created", "id": meme.id})
         except DuplicateMemeError as exc:
@@ -223,8 +193,7 @@ def list_memes(
 
 @app.get("/api/memes/pending")
 def pending(db: Connection = Depends(get_db)):
-    pending_items = MemeRepository(db).pending_statuses()
-    return {"items": recent_status_snapshot(pending_items)}
+    return {"items": MemeRepository(db).pending_statuses()}
 
 
 @app.get("/api/memes/{meme_id}/image")
@@ -250,7 +219,6 @@ def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(
     meme = repo.update_search_fields(meme_id, body.model_dump())
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
-    remember_status(meme_id, "done")
     return meme
 
 
