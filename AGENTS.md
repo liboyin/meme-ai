@@ -1,8 +1,10 @@
 This file is intended for AI agents.
 
-# Ask Questions, Document Answers
+# Documentation Guidelines
 
-Many design decisions in this project are undocumented. When something feels like an assumption, ask why it was designed that way. If an explanation is provided, update the documentation accordingly.
+- `README.md` describes project architecture, dataflow, and design decisions for both humans and AI agents.
+- When a design decision feels like an assumption, ask why and update documentation if an explanation is provided.
+- All new & modified functions/methods in non-test scripts must have Google-style docstrings; unit test functions must have a one-liner docstring.
 
 # Implementation guidelines
 
@@ -14,8 +16,8 @@ After any code change, verify all of the following pass before considering the t
 
 ```
 # backend
-pytest
-ruff check
+uv run pytest
+uv run ruff check
 # frontend
 cd frontend
 npm run test:coverage
