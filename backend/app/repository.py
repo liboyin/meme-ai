@@ -2,7 +2,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Mapping
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 from .models import Meme
 
@@ -419,25 +419,6 @@ class MemeRepository:
             (fts_query, limit),
         ).fetchall()
         return [self._api_payload(dict(row), include_rank=True) for row in rows]
-
-    def get_for_llm(self, ids: Iterable[int]) -> list[dict]:
-        """Fetch metadata (without image_data) for the given meme IDs.
-
-        Args:
-            ids: Iterable of meme IDs to retrieve.
-
-        Returns:
-            List of meme API payloads.
-        """
-        id_list = list(ids)
-        if not id_list:
-            return []
-        placeholders = ", ".join("?" for _ in id_list)
-        rows = self.db.execute(
-            f"SELECT {_METADATA_COLUMNS} FROM memes WHERE id IN ({placeholders})",
-            id_list,
-        ).fetchall()
-        return [self._api_payload(dict(row)) for row in rows]
 
     def pending_ids(self) -> list[int]:
         """Return IDs of all memes with analysis_status 'pending', newest first."""

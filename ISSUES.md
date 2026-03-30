@@ -24,8 +24,10 @@ That is both a secret-handling smell and a build-time coupling to an untracked l
 
    **Fixed:** Removed `COPY .env /app/.env` from `Dockerfile.backend`. Added `.env` to `.dockerignore` so it is excluded from the build context entirely. Runtime env is already injected by `env_file` in `docker-compose.yml`.
 
-6. Low: the response-schema layer exists, but it does not actually own the response contract. schemas.py (line 4), main.py (line 20), main.py (line 214), repository.py (line 34), repository.py (line 64), repository.py (line 160)
-Most response models are dead code, route handlers return ad-hoc dicts, one route calls a repository private method, and get_for_llm() appears test-only. That is not breaking today, but it is an awkward halfway design. Simplest fix: either wire real response_models and expose a public serializer, or delete the unused schema/serializer layer and keep one clear dict-based path.
+6. ~~Low: the response-schema layer exists, but it does not actually own the response contract. schemas.py (line 4), main.py (line 20), main.py (line 214), repository.py (line 34), repository.py (line 64), repository.py (line 160)
+Most response models are dead code, route handlers return ad-hoc dicts, one route calls a repository private method, and get_for_llm() appears test-only. That is not breaking today, but it is an awkward halfway design. Simplest fix: either wire real response_models and expose a public serializer, or delete the unused schema/serializer layer and keep one clear dict-based path.~~
+
+   **Fixed:** All routes already had `response_model=` wired and no route was calling a private repository method. The only remaining gap was `get_for_llm()`, which was dead production code only exercised in one test. Deleted `get_for_llm` from `repository.py` and replaced its two test usages with `get_metadata()`. Removed the now-unused `Iterable` import.
 
 # Simplifications
 
