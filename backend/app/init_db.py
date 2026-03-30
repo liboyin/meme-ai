@@ -70,8 +70,6 @@ def init_db() -> None:
                 "Cannot enforce unique meme sha256 values until duplicate rows are removed: "
                 f"{duplicate_preview}"
             ) from exc
-        # Recreate the derived FTS table so schema changes are applied to existing DBs.
-        db.execute("DROP TABLE IF EXISTS memes_fts")
         db.execute(
             """
             CREATE VIRTUAL TABLE IF NOT EXISTS memes_fts USING fts5(
@@ -79,12 +77,9 @@ def init_db() -> None:
             )
             """
         )
-        db.execute("DROP TRIGGER IF EXISTS memes_ai")
-        db.execute("DROP TRIGGER IF EXISTS memes_au")
-        db.execute("DROP TRIGGER IF EXISTS memes_ad")
         db.execute(
             """
-            CREATE TRIGGER memes_ai AFTER INSERT ON memes BEGIN
+            CREATE TRIGGER IF NOT EXISTS memes_ai AFTER INSERT ON memes BEGIN
                 INSERT INTO memes_fts(rowid, description, why_funny, "references", use_cases, tags)
                 SELECT
                     NEW.id,
@@ -99,7 +94,7 @@ def init_db() -> None:
         )
         db.execute(
             """
-            CREATE TRIGGER memes_au AFTER UPDATE ON memes BEGIN
+            CREATE TRIGGER IF NOT EXISTS memes_au AFTER UPDATE ON memes BEGIN
                 DELETE FROM memes_fts WHERE rowid = NEW.id;
                 INSERT INTO memes_fts(rowid, description, why_funny, "references", use_cases, tags)
                 SELECT
@@ -115,24 +110,9 @@ def init_db() -> None:
         )
         db.execute(
             """
-            CREATE TRIGGER memes_ad AFTER DELETE ON memes BEGIN
+            CREATE TRIGGER IF NOT EXISTS memes_ad AFTER DELETE ON memes BEGIN
                 DELETE FROM memes_fts WHERE rowid = OLD.id;
             END
-            """
-        )
-        db.execute("DELETE FROM memes_fts")
-        db.execute(
-            """
-            INSERT INTO memes_fts(rowid, description, why_funny, "references", use_cases, tags)
-            SELECT
-                m.id,
-                m.description,
-                m.why_funny,
-                m."references",
-                m.use_cases,
-                COALESCE((SELECT group_concat(value, ' ') FROM json_each(m.tags)), '')
-            FROM memes AS m
-            WHERE m.analysis_status = 'done'
             """
         )
         db.commit()
