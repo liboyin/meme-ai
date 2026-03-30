@@ -93,6 +93,7 @@ def wait_for_status(client, meme_id, expected_status, timeout=1.5):
 
 
 def test_full_backend_flow_with_mocked_llm(monkeypatch, tmp_path):
+    """Upload, analyse, list, image-serve, fuzzy-search, LLM-search, and delete a meme end-to-end."""
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -139,6 +140,7 @@ def test_full_backend_flow_with_mocked_llm(monkeypatch, tmp_path):
 
 
 def test_upload_rejects_single_invalid_file_with_415(monkeypatch, tmp_path):
+    """A single-file upload with an unsupported type returns 415."""
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -156,6 +158,7 @@ def test_upload_rejects_single_invalid_file_with_415(monkeypatch, tmp_path):
 
 
 def test_multi_upload_allows_partial_success(monkeypatch, tmp_path):
+    """A batch upload with one valid and one invalid file returns 200 with per-item status."""
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -179,6 +182,7 @@ def test_multi_upload_allows_partial_success(monkeypatch, tmp_path):
 
 
 def test_upload_rejects_duplicate_sha256_with_409(monkeypatch, tmp_path):
+    """Uploading the same file twice returns 409 and keeps only one row in the database."""
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -208,6 +212,7 @@ def test_upload_rejects_duplicate_sha256_with_409(monkeypatch, tmp_path):
 
 
 def test_multi_upload_reports_duplicate_sha256_as_item_error(monkeypatch, tmp_path):
+    """In a batch upload, a duplicate file produces an item-level error while others succeed."""
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -250,6 +255,7 @@ def test_multi_upload_reports_duplicate_sha256_as_item_error(monkeypatch, tmp_pa
 
 
 def test_upload_persists_phash(monkeypatch, tmp_path):
+    """The perceptual hash computed at upload time is stored correctly in the database."""
     _config, database, _init_db, _llm, main, repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -275,6 +281,7 @@ def test_upload_persists_phash(monkeypatch, tmp_path):
 
 
 def test_list_memes_supports_sorting(monkeypatch, tmp_path):
+    """GET /api/memes returns memes in the correct order for all sort_by/sort_order combinations."""
     _config, database, init_db, _llm, main, repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -348,6 +355,7 @@ def test_list_memes_supports_sorting(monkeypatch, tmp_path):
 
 
 def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(monkeypatch, tmp_path):
+    """Without an API key, analysis errors out and the LLM search endpoint returns 503."""
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -382,6 +390,7 @@ def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(monkeypatch, 
 
 
 def test_manual_metadata_update_reindexes_fts(monkeypatch, tmp_path):
+    """PUT /api/memes/{id} persists new fields and makes them immediately searchable via FTS."""
     _config, _database, _init_db, _llm, main, _repository = load_test_modules(
         monkeypatch,
         tmp_path,
@@ -421,6 +430,7 @@ def test_manual_metadata_update_reindexes_fts(monkeypatch, tmp_path):
 
 
 def test_startup_requeues_pending_memes(monkeypatch, tmp_path):
+    """Memes left in pending state before a restart are analysed when the app starts up."""
     (
         _config,
         database,

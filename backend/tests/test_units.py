@@ -82,6 +82,7 @@ def install_image_open(monkeypatch, main_module, *entries):
 
 
 def test_validate_image_bytes_and_recent_status_snapshot(monkeypatch, tmp_path):
+    """Covers size, format, animation, and MIME-mismatch rejection paths in validate_image_bytes."""
     modules = load_test_modules(monkeypatch, tmp_path)
     main = modules.main
 
@@ -158,6 +159,7 @@ def test_validate_image_bytes_and_recent_status_snapshot(monkeypatch, tmp_path):
 
 
 def test_repository_edge_cases(monkeypatch, tmp_path):
+    """Covers no-op operations, FTS search, tag parsing, and API payload structure."""
     modules = load_test_modules(monkeypatch, tmp_path)
     modules.init_db.init_db()
 
@@ -223,6 +225,7 @@ def test_repository_edge_cases(monkeypatch, tmp_path):
 
 
 def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
+    """DuplicateMemeError is raised and the original row is unchanged on sha256 collision."""
     modules = load_test_modules(monkeypatch, tmp_path)
     modules.init_db.init_db()
 
@@ -260,6 +263,7 @@ def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
 
 
 def test_repository_list_memes_supports_requested_sort(monkeypatch, tmp_path):
+    """list_memes returns rows in the correct order for all supported sort fields and directions."""
     modules = load_test_modules(monkeypatch, tmp_path)
     modules.init_db.init_db()
 
@@ -318,6 +322,7 @@ def test_repository_list_memes_supports_requested_sort(monkeypatch, tmp_path):
 
 
 def test_init_db_adds_phash_column_and_sort_indexes(monkeypatch, tmp_path):
+    """init_db creates the phash column and all expected sort indexes."""
     modules = load_test_modules(monkeypatch, tmp_path)
     modules.init_db.init_db()
 
@@ -335,6 +340,7 @@ def test_init_db_adds_phash_column_and_sort_indexes(monkeypatch, tmp_path):
 
 @pytest.mark.anyio
 async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch, tmp_path):
+    """analyze_and_store is a no-op for unknown IDs and sets error status on analysis failure."""
     modules = load_test_modules(monkeypatch, tmp_path)
     modules.init_db.init_db()
 
@@ -370,6 +376,7 @@ async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch
 
 @pytest.mark.anyio
 async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkeypatch, tmp_path):
+    """A manual update that completes before slow LLM analysis finishes takes precedence."""
     modules = load_test_modules(monkeypatch, tmp_path)
     modules.init_db.init_db()
 
@@ -437,6 +444,7 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
 
 
 def test_llm_helpers_cover_validation_and_json_extraction(monkeypatch, tmp_path):
+    """_normalise_analysis_payload and _extract_json handle valid, partial, and invalid inputs."""
     modules = load_test_modules(monkeypatch, tmp_path, api_key="")
     llm = modules.llm
 
@@ -473,6 +481,7 @@ def test_llm_helpers_cover_validation_and_json_extraction(monkeypatch, tmp_path)
 
 @pytest.mark.anyio
 async def test_llm_completion_fallback_and_ranking_edge_cases(monkeypatch, tmp_path):
+    """_create_json_completion falls back to prompt-only JSON, and llm_rank skips malformed items."""
     modules = load_test_modules(monkeypatch, tmp_path)
     llm = modules.llm
 

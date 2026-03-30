@@ -28,6 +28,8 @@ _METADATA_COLUMNS = (
 
 
 class DuplicateMemeError(ValueError):
+    """Raised when inserting a meme whose sha256 already exists."""
+
     def __init__(self, sha256: str, *, existing_id: int | None = None):
         self.sha256 = sha256
         self.existing_id = existing_id
@@ -35,11 +37,26 @@ class DuplicateMemeError(ValueError):
 
 
 class MemeRepository:
+    """Data-access layer for meme CRUD, search, and analysis operations."""
+
     def __init__(self, db: sqlite3.Connection):
+        """Initialise the repository with a SQLite connection.
+
+        Args:
+            db: An open SQLite connection.
+        """
         self.db = db
 
     @staticmethod
     def _safe_parse_tags(tags: Any) -> list[Any]:
+        """Parse a tags value into a list, handling JSON strings and invalid data.
+
+        Args:
+            tags: A list, JSON string, or other value.
+
+        Returns:
+            A list of tag values, or an empty list on failure.
+        """
         if isinstance(tags, list):
             return tags
         if not tags:
@@ -54,6 +71,7 @@ class MemeRepository:
 
     @staticmethod
     def _row_to_meme(row: sqlite3.Row) -> Meme:
+        """Convert a SQLite Row to a Meme dataclass instance."""
         return Meme(**dict(row))
 
     @classmethod
@@ -63,6 +81,16 @@ class MemeRepository:
         *,
         include_rank: bool = False,
     ) -> dict[str, Any]:
+        """Build an API-ready dict from a Meme or row mapping.
+
+        Args:
+            meme: A Meme instance or dict-like row.
+            include_rank: If True, include the rank/score field.
+
+        Returns:
+            Dict suitable for JSON serialisation in API responses.
+        """
+
         def get(field: str) -> Any:
             if isinstance(meme, Mapping):
                 return meme.get(field)
@@ -87,12 +115,25 @@ class MemeRepository:
         return payload
 
     def get_by_sha256(self, sha256: str) -> Meme | None:
+        """Fetch a meme by its sha256 hash, or None if not found."""
         row = self.db.execute("SELECT * FROM memes WHERE sha256 = ?", (sha256,)).fetchone()
         if row is None:
             return None
         return self._row_to_meme(row)
 
     def create_meme(self, **kwargs) -> Meme:
+        """Insert a new meme row and return the created Meme.
+
+        Args:
+            **kwargs: Column values including filename, mime_type, sha256,
+                phash, image_data, uploaded_at, and optional analysis fields.
+
+        Returns:
+            The newly created Meme.
+
+        Raises:
+            DuplicateMemeError: If a meme with the same sha256 already exists.
+        """
         payload = {
             "filename": kwargs["filename"],
             "mime_type": kwargs["mime_type"],
@@ -162,6 +203,7 @@ class MemeRepository:
         return meme
 
     def get_full(self, meme_id: int) -> Meme | None:
+        """Fetch a meme by ID including image_data, or None if not found."""
         row = self.db.execute("SELECT * FROM memes WHERE id = ?", (meme_id,)).fetchone()
         if row is None:
             return None
@@ -169,6 +211,11 @@ class MemeRepository:
 
     @staticmethod
     def _list_order_by(sort_by: SortBy, sort_order: SortOrder) -> str:
+        """Return the SQL ORDER BY clause for the given sort parameters.
+
+        Raises:
+            ValueError: If the sort combination is not supported.
+        """
         try:
             return LIST_MEME_ORDER_BY[(sort_by, sort_order)]
         except KeyError as exc:
@@ -191,6 +238,17 @@ class MemeRepository:
         sort_by: SortBy = "uploaded_at",
         sort_order: SortOrder = "desc",
     ) -> tuple[list[dict], int]:
+        """Return a paginated list of meme metadata dicts and the total count.
+
+        Args:
+            page: 1-based page number.
+            page_size: Number of items per page.
+            sort_by: Column to sort by.
+            sort_order: Ascending or descending.
+
+        Returns:
+            Tuple of (list of meme API payloads, total meme count).
+        """
         order_by = self._list_order_by(sort_by, sort_order)
         total_row = self.db.execute("SELECT COUNT(*) AS total FROM memes").fetchone()
         total = int(total_row["total"]) if total_row is not None else 0
@@ -205,6 +263,7 @@ class MemeRepository:
         return [self._api_payload(dict(row)) for row in rows], total
 
     def pending_statuses(self) -> list[dict]:
+        """Return id and analysis_status for all pending or errored memes."""
         rows = self.db.execute(
             """
             SELECT id, analysis_status
@@ -216,6 +275,14 @@ class MemeRepository:
         return [{"id": row["id"], "analysis_status": row["analysis_status"]} for row in rows]
 
     def update_analysis(self, meme_id: int, payload: dict, status: str, error: str | None = None) -> None:
+        """Store LLM analysis results for a meme.
+
+        Args:
+            meme_id: ID of the meme to update.
+            payload: Dict with description, why_funny, references, use_cases, tags.
+            status: New analysis_status value (e.g. "done").
+            error: Optional error message.
+        """
         cursor = self.db.execute(
             """
             UPDATE memes
@@ -243,6 +310,15 @@ class MemeRepository:
             self.db.commit()
 
     def update_search_fields(self, meme_id: int, payload: Mapping[str, Any]) -> dict | None:
+        """Overwrite a meme's searchable fields and mark analysis as done.
+
+        Args:
+            meme_id: ID of the meme to update.
+            payload: Dict with description, why_funny, references, use_cases, tags.
+
+        Returns:
+            Updated meme metadata dict, or None if the meme doesn't exist.
+        """
         exists = self.db.execute("SELECT id FROM memes WHERE id = ?", (meme_id,)).fetchone()
         if exists is None:
             return None
@@ -273,6 +349,7 @@ class MemeRepository:
         return self.get_metadata(meme_id)
 
     def set_error(self, meme_id: int, message: str) -> None:
+        """Mark a meme's analysis as errored with the given message (truncated to 200 chars)."""
         cursor = self.db.execute(
             """
             UPDATE memes
@@ -285,6 +362,7 @@ class MemeRepository:
             self.db.commit()
 
     def delete(self, meme_id: int) -> bool:
+        """Delete a meme by ID. Returns True if a row was deleted."""
         cursor = self.db.execute("DELETE FROM memes WHERE id = ?", (meme_id,))
         deleted = cursor.rowcount > 0
         if deleted:
@@ -293,6 +371,7 @@ class MemeRepository:
 
     @staticmethod
     def _build_fts_query(query: str) -> str:
+        """Convert a user query into an FTS5 MATCH expression with prefix wildcards."""
         tokens: list[str] = []
         seen: set[str] = set()
         for token in FTS_TOKEN_PATTERN.findall(query.lower()):
@@ -302,6 +381,15 @@ class MemeRepository:
         return " OR ".join(tokens)
 
     def search_fts(self, query: str, limit: int = 20) -> list[dict]:
+        """Search memes using FTS5 full-text search, ranked by BM25.
+
+        Args:
+            query: User search string.
+            limit: Maximum number of results.
+
+        Returns:
+            List of meme API payloads with rank scores.
+        """
         fts_query = self._build_fts_query(query)
         if not fts_query:
             return []
@@ -333,6 +421,14 @@ class MemeRepository:
         return [self._api_payload(dict(row), include_rank=True) for row in rows]
 
     def get_for_llm(self, ids: Iterable[int]) -> list[dict]:
+        """Fetch metadata (without image_data) for the given meme IDs.
+
+        Args:
+            ids: Iterable of meme IDs to retrieve.
+
+        Returns:
+            List of meme API payloads.
+        """
         id_list = list(ids)
         if not id_list:
             return []
@@ -344,6 +440,7 @@ class MemeRepository:
         return [self._api_payload(dict(row)) for row in rows]
 
     def pending_ids(self) -> list[int]:
+        """Return IDs of all memes with analysis_status 'pending', newest first."""
         rows = self.db.execute(
             """
             SELECT id

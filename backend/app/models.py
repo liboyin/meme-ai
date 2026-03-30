@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class Meme:
+    """Data class representing a meme row from the database."""
+
     id: int
     filename: str
     mime_type: str

@@ -52,16 +52,30 @@ RANKING_SCHEMA: dict[str, object] = {
 
 
 class LLMUnavailableError(RuntimeError):
+    """Raised when the OpenAI API key is not configured."""
+
     pass
 
 
 def _client() -> AsyncOpenAI:
+    """Return an AsyncOpenAI client, raising LLMUnavailableError if unconfigured."""
     if not settings.openai_api_key:
         raise LLMUnavailableError
     return AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
 
 
 def _normalise_analysis_payload(data: Any) -> dict[str, Any]:
+    """Validate and normalise a raw LLM analysis response into a clean dict.
+
+    Args:
+        data: Parsed JSON from the LLM response.
+
+    Returns:
+        Dict with description, why_funny, references, use_cases, and tags.
+
+    Raises:
+        ValueError: If data is not a dict.
+    """
     if not isinstance(data, dict):
         raise ValueError("LLM analysis response was not a JSON object.")
 
@@ -79,6 +93,20 @@ def _normalise_analysis_payload(data: Any) -> dict[str, Any]:
 
 
 def _extract_json(content: str) -> Any:
+    """Extract and parse JSON from an LLM text response.
+
+    Tries direct parsing first, then falls back to finding the outermost
+    JSON array or object in the string.
+
+    Args:
+        content: Raw text from the LLM completion.
+
+    Returns:
+        The parsed JSON value.
+
+    Raises:
+        ValueError: If no valid JSON is found.
+    """
     stripped = content.strip()
     try:
         return json.loads(stripped)
@@ -104,6 +132,20 @@ async def _create_json_completion(
     schema: dict[str, object],
     fallback_instructions: str,
 ) -> Any:
+    """Request a structured JSON completion from the LLM.
+
+    Attempts json_schema response_format first. If the provider rejects it,
+    falls back to prompt-only JSON instructions.
+
+    Args:
+        messages: Chat messages to send.
+        schema_name: Name for the JSON schema.
+        schema: JSON schema dict the response should conform to.
+        fallback_instructions: System prompt appended when structured output is unsupported.
+
+    Returns:
+        Parsed JSON from the LLM response.
+    """
     client = _client()
     json_schema: JSONSchema = {
         "name": schema_name,
@@ -140,6 +182,15 @@ async def _create_json_completion(
 
 
 async def analyze_image(image_bytes: bytes, mime_type: str) -> dict:
+    """Analyze a meme image using the LLM and return structured metadata.
+
+    Args:
+        image_bytes: Raw image bytes.
+        mime_type: MIME type of the image (e.g. "image/png").
+
+    Returns:
+        Dict with description, why_funny, references, use_cases, and tags.
+    """
     async with semaphore:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
         prompt = (
@@ -175,6 +226,17 @@ async def analyze_image(image_bytes: bytes, mime_type: str) -> dict:
 
 
 async def llm_rank(query: str, candidates: list[dict]) -> list[dict]:
+    """Re-rank meme search candidates by semantic relevance using the LLM.
+
+    Processes candidates in chunks of 15, scoring each on a 0-10 scale.
+
+    Args:
+        query: The user's search query.
+        candidates: List of meme metadata dicts from FTS search.
+
+    Returns:
+        Candidates sorted by descending relevance score.
+    """
     results: list[dict] = []
     for idx in range(0, len(candidates), 15):
         chunk = candidates[idx : idx + 15]

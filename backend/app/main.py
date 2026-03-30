@@ -41,6 +41,7 @@ ALLOWED_MIME = {
 
 
 def get_db():
+    """Yield a SQLite connection for FastAPI dependency injection, closing it after use."""
     db = SessionLocal()
     try:
         yield db
@@ -49,6 +50,7 @@ def get_db():
 
 
 def llm_unavailable_response() -> JSONResponse:
+    """Return a 503 JSON response indicating the LLM is not configured."""
     return JSONResponse(
         status_code=503,
         content={
@@ -61,6 +63,19 @@ def llm_unavailable_response() -> JSONResponse:
 
 
 def validate_image_bytes(*, filename: str | None, mime_type: str | None, data: bytes) -> str:
+    """Validate uploaded image bytes for size, format, and animation.
+
+    Args:
+        filename: Original filename for error messages.
+        mime_type: Declared MIME type to cross-check against detected format.
+        data: Raw image bytes.
+
+    Returns:
+        The detected MIME type string.
+
+    Raises:
+        HTTPException: On invalid size (413), unsupported format (415), or animation (415).
+    """
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail=f"File too large: {filename or 'upload'}")
 
@@ -93,11 +108,26 @@ def validate_image_bytes(*, filename: str | None, mime_type: str | None, data: b
 
 
 def compute_image_phash(data: bytes) -> str:
+    """Compute the perceptual hash of an image.
+
+    Args:
+        data: Raw image bytes.
+
+    Returns:
+        Hex string of the perceptual hash.
+    """
     with Image.open(BytesIO(data)) as image:
         return str(imagehash.phash(image))
 
 
 async def analyze_and_store(meme_id: int):
+    """Run LLM analysis on a meme and persist the results.
+
+    Skips analysis if the meme no longer exists or is no longer pending.
+
+    Args:
+        meme_id: ID of the meme to analyse.
+    """
     db = SessionLocal()
     repo = MemeRepository(db)
     meme = repo.get_full(meme_id)
@@ -130,6 +160,7 @@ async def analyze_and_store(meme_id: int):
 
 
 async def resume_pending_analysis() -> None:
+    """Initialise the database and spawn analysis tasks for any pending memes."""
     init_db()
     db = SessionLocal()
     repo = MemeRepository(db)
@@ -140,6 +171,7 @@ async def resume_pending_analysis() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """Application lifespan handler that resumes pending meme analyses on startup."""
     await resume_pending_analysis()
     yield
 
@@ -150,6 +182,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 @app.post("/api/memes/upload", response_model=UploadOut)
 async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...), db: Connection = Depends(get_db)) -> UploadOut:
+    """Upload up to 50 meme images, validate them, and queue background LLM analysis."""
     if len(files) > 50:
         raise HTTPException(status_code=413, detail="Maximum 50 files per request")
 
@@ -194,6 +227,7 @@ def list_memes(
     sort_order: Annotated[SortOrder, Query()] = "desc",
     db: Connection = Depends(get_db),
 ) -> MemeListOut:
+    """Return a paginated, sorted list of meme metadata."""
     page = max(1, page)
     page_size = max(1, min(page_size, 100))
     repo = MemeRepository(db)
@@ -203,11 +237,13 @@ def list_memes(
 
 @app.get("/api/memes/pending", response_model=PendingOut)
 def pending(db: Connection = Depends(get_db)) -> PendingOut:
+    """Return all memes whose analysis is pending or errored."""
     return {"items": MemeRepository(db).pending_statuses()}
 
 
 @app.get("/api/memes/{meme_id}/image", response_class=Response)
 def image(meme_id: int, db: Connection = Depends(get_db)) -> Response:
+    """Serve the raw image bytes for a meme with the correct content type."""
     meme = MemeRepository(db).get_full(meme_id)
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
@@ -216,6 +252,7 @@ def image(meme_id: int, db: Connection = Depends(get_db)) -> Response:
 
 @app.get("/api/memes/{meme_id}", response_model=MemeOut)
 def get_meme(meme_id: int, db: Connection = Depends(get_db)) -> MemeOut:
+    """Return metadata for a single meme by ID."""
     repo = MemeRepository(db)
     meme = repo.get_metadata(meme_id)
     if not meme:
@@ -225,6 +262,7 @@ def get_meme(meme_id: int, db: Connection = Depends(get_db)) -> MemeOut:
 
 @app.put("/api/memes/{meme_id}", response_model=MemeOut)
 def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(get_db)) -> MemeOut:
+    """Update a meme's searchable fields (description, tags, etc.)."""
     repo = MemeRepository(db)
     meme = repo.update_search_fields(meme_id, body.model_dump())
     if not meme:
@@ -234,6 +272,7 @@ def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(
 
 @app.delete("/api/memes/{meme_id}", response_model=DeleteOut)
 def delete_meme(meme_id: int, db: Connection = Depends(get_db)) -> DeleteOut:
+    """Delete a meme by ID."""
     if not MemeRepository(db).delete(meme_id):
         raise HTTPException(status_code=404, detail="Not found")
     return {"deleted": True}
@@ -241,6 +280,7 @@ def delete_meme(meme_id: int, db: Connection = Depends(get_db)) -> DeleteOut:
 
 @app.get("/api/search", response_model=SearchOut)
 def fuzzy_search(q: str, mode: str = "fuzzy", db: Connection = Depends(get_db)) -> SearchOut:
+    """Search memes using FTS5 full-text search."""
     if mode != "fuzzy":
         raise HTTPException(status_code=400, detail="Unsupported mode")
     return {"items": MemeRepository(db).search_fts(q, limit=20)}
@@ -248,6 +288,7 @@ def fuzzy_search(q: str, mode: str = "fuzzy", db: Connection = Depends(get_db)) 
 
 @app.post("/api/search/llm", response_model=SearchOut)
 async def ai_search(body: LlmSearchRequest, db: Connection = Depends(get_db)) -> SearchOut | JSONResponse:
+    """Search memes using FTS5 pre-filtering followed by LLM re-ranking."""
     if not settings.openai_api_key:
         return llm_unavailable_response()
     repo = MemeRepository(db)
@@ -267,4 +308,5 @@ async def ai_search(body: LlmSearchRequest, db: Connection = Depends(get_db)) ->
 
 @app.exception_handler(LLMUnavailableError)
 async def llm_unavailable_handler(_request: object, _exc: LLMUnavailableError) -> JSONResponse:
+    """Handle LLMUnavailableError globally by returning a 503 response."""
     return llm_unavailable_response()

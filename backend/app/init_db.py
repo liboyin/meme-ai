@@ -4,6 +4,11 @@ from .database import SessionLocal
 
 
 def init_db() -> None:
+    """Create the memes table, indexes, FTS virtual table, and triggers if they don't exist.
+
+    Raises:
+        RuntimeError: If duplicate sha256 rows prevent unique index creation.
+    """
     db = SessionLocal()
     try:
         db.execute(
