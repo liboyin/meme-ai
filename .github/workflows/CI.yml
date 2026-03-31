@@ -25,10 +25,10 @@ jobs:
         run: uv run --group dev ruff check backend
 
       - name: Run backend mypy checks
-        run: uv run --group dev mypy .
+        run: uv run --group dev mypy
 
       - name: Run backend tests with coverage gate
-        run: uv run --group dev pytest backend/tests
+        run: uv run --group dev pytest
 
   frontend:
     name: Frontend

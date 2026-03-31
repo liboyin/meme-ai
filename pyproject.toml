@@ -26,6 +26,7 @@ dev = [
 ]
 
 [tool.mypy]
+files = ["backend/app"]
 check_untyped_defs = true
 disallow_untyped_defs = true
 ignore_missing_imports = true

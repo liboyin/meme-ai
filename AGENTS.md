@@ -17,7 +17,8 @@ After any code change, verify all of the following pass before considering the t
 ```
 # backend
 uv run pytest
-uv run ruff check
+uv run mypy
+uv run ruff check backend
 # frontend
 cd frontend
 npm run test:coverage
