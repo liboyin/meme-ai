@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from io import BytesIO
@@ -24,8 +25,11 @@ from .schemas import (
     MemeIndexFieldsIn,
     MemeListOut,
     MemeOut,
+    MemeSearchOut,
+    PendingItem,
     PendingOut,
     SearchOut,
+    UploadItemResult,
     UploadOut,
 )
 
@@ -40,7 +44,7 @@ ALLOWED_MIME = {
 }
 
 
-def get_db():
+def get_db() -> Generator[Connection, None, None]:
     """Yield a SQLite connection for FastAPI dependency injection, closing it after use."""
     db = SessionLocal()
     try:
@@ -120,7 +124,7 @@ def compute_image_phash(data: bytes) -> str:
         return str(imagehash.phash(image))
 
 
-async def analyze_and_store(meme_id: int):
+async def analyze_and_store(meme_id: int) -> None:
     """Run LLM analysis on a meme and persist the results.
 
     Skips analysis if the meme no longer exists or is no longer pending.
@@ -170,7 +174,7 @@ async def resume_pending_analysis() -> None:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler that resumes pending meme analyses on startup."""
     await resume_pending_analysis()
     yield
@@ -216,7 +220,7 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
             if single_file_request:
                 raise exc
             items.append({"filename": file.filename, "status": "error", "error": exc.detail})
-    return {"items": items}
+    return UploadOut(items=[UploadItemResult.model_validate(i) for i in items])
 
 
 @app.get("/api/memes", response_model=MemeListOut)
@@ -232,13 +236,13 @@ def list_memes(
     page_size = max(1, min(page_size, 100))
     repo = MemeRepository(db)
     items, total = repo.list_memes(page, page_size, sort_by=sort_by, sort_order=sort_order)
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    return MemeListOut(items=[MemeOut.model_validate(i) for i in items], total=total, page=page, page_size=page_size)
 
 
 @app.get("/api/memes/pending", response_model=PendingOut)
 def pending(db: Connection = Depends(get_db)) -> PendingOut:
     """Return all memes whose analysis is pending or errored."""
-    return {"items": MemeRepository(db).pending_statuses()}
+    return PendingOut(items=[PendingItem.model_validate(i) for i in MemeRepository(db).pending_statuses()])
 
 
 @app.get("/api/memes/{meme_id}/image", response_class=Response)
@@ -257,7 +261,7 @@ def get_meme(meme_id: int, db: Connection = Depends(get_db)) -> MemeOut:
     meme = repo.get_metadata(meme_id)
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
-    return meme
+    return MemeOut(**meme)
 
 
 @app.put("/api/memes/{meme_id}", response_model=MemeOut)
@@ -267,7 +271,7 @@ def update_meme(meme_id: int, body: MemeIndexFieldsIn, db: Connection = Depends(
     meme = repo.update_search_fields(meme_id, body.model_dump())
     if not meme:
         raise HTTPException(status_code=404, detail="Not found")
-    return meme
+    return MemeOut(**meme)
 
 
 @app.delete("/api/memes/{meme_id}", response_model=DeleteOut)
@@ -275,7 +279,7 @@ def delete_meme(meme_id: int, db: Connection = Depends(get_db)) -> DeleteOut:
     """Delete a meme by ID."""
     if not MemeRepository(db).delete(meme_id):
         raise HTTPException(status_code=404, detail="Not found")
-    return {"deleted": True}
+    return DeleteOut(deleted=True)
 
 
 @app.get("/api/search", response_model=SearchOut)
@@ -283,7 +287,7 @@ def fuzzy_search(q: str, mode: str = "fuzzy", db: Connection = Depends(get_db)) 
     """Search memes using FTS5 full-text search."""
     if mode != "fuzzy":
         raise HTTPException(status_code=400, detail="Unsupported mode")
-    return {"items": MemeRepository(db).search_fts(q, limit=20)}
+    return SearchOut(items=[MemeSearchOut.model_validate(i) for i in MemeRepository(db).search_fts(q, limit=20)])
 
 
 @app.post("/api/search/llm", response_model=SearchOut)
@@ -294,7 +298,7 @@ async def ai_search(body: LlmSearchRequest, db: Connection = Depends(get_db)) ->
     repo = MemeRepository(db)
     short = repo.search_fts(body.query, limit=200)
     if not short:
-        return {"items": []}
+        return SearchOut(items=[])
     ranked = await llm_rank(body.query, short)
     by_id = {m["id"]: m for m in short}
     out = []
@@ -303,7 +307,7 @@ async def ai_search(body: LlmSearchRequest, db: Connection = Depends(get_db)) ->
             m = by_id[item["id"]]
             m.update(item)
             out.append(m)
-    return {"items": out[: body.top_n]}
+    return SearchOut(items=[MemeSearchOut.model_validate(i) for i in out[: body.top_n]])
 
 
 @app.exception_handler(LLMUnavailableError)

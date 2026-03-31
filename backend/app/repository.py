@@ -121,7 +121,7 @@ class MemeRepository:
             return None
         return self._row_to_meme(row)
 
-    def create_meme(self, **kwargs) -> Meme:
+    def create_meme(self, **kwargs: Any) -> Meme:
         """Insert a new meme row and return the created Meme.
 
         Args:

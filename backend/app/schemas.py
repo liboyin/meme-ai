@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -35,7 +37,7 @@ class MemeIndexFieldsIn(BaseModel):
 
     @field_validator("description", "why_funny", "references", "use_cases", mode="before")
     @classmethod
-    def normalize_optional_text(cls, value):
+    def normalize_optional_text(cls, value: Any) -> str | None:
         """Strip whitespace from text fields and convert empty strings to None."""
         if value is None:
             return None
@@ -44,7 +46,7 @@ class MemeIndexFieldsIn(BaseModel):
 
     @field_validator("tags", mode="before")
     @classmethod
-    def normalize_tags(cls, value):
+    def normalize_tags(cls, value: Any) -> list[str]:
         """Deduplicate and strip whitespace from tags, removing empty entries."""
         if value is None:
             return []
