@@ -2,7 +2,7 @@
 
 1. App.jsx (line 10) is carrying collection, polling, search, upload, modal-detail, delete, and drag/drop coordination, which is why Sidebar.jsx (line 1) and MemeGrid.jsx (line 1) have such wide prop surfaces. Sidebar receives ~19 props, MemeGrid ~13, MemeDetailModal ~6. A single page-level hook/view-model would consolidate this coordination without adding much abstraction.
 
-2. The client stack is noisier than necessary: fetch for most requests, axios only for uploads in useUpload.js (line 2), unused httpx in pyproject.toml (line 8), and createElement inside .jsx files in App.jsx (line 146). Standardizing on fetch everywhere and plain JSX would make the code easier to scan. The httpx removal is a one-liner; replacing axios with fetch in useUpload.js removes the dependency entirely.
+2. The client stack is noisier than necessary: fetch for most requests, axios only for uploads in useUpload.js (line 2), <del>unused httpx in pyproject.toml (line 8)</del>, and <del>createElement inside .jsx files in App.jsx (line 146)</del>. Standardizing on fetch everywhere and plain JSX would make the code easier to scan. <del>The httpx removal is a one-liner;</del> replacing axios with fetch in useUpload.js removes the dependency entirely. *(Note: decided to keep axios for upload progress bar)*
 
 3. _api_payload in repository.py (lines 78–115) has a dual-dispatch inner helper get() that handles both Meme instances and Mapping inputs. Since get_for_llm was deleted, every call site now passes a plain dict(row). The Meme branch and the get() abstraction are dead code; the method can become a straightforward dict transform.
 
