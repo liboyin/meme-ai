@@ -1,6 +1,7 @@
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
+import reactPlugin from 'eslint-plugin-react'
 
 export default [
   {
@@ -22,9 +23,11 @@ export default [
         ...globals.node
       }
     },
-    plugins: { 'react-hooks': reactHooks },
+    plugins: { 'react-hooks': reactHooks, react: reactPlugin },
     rules: {
-      ...reactHooks.configs.recommended.rules
+      ...reactHooks.configs.recommended.rules,
+      'react/jsx-uses-react': 'error',
+      'react/jsx-uses-vars': 'error'
     }
   }
 ]
