@@ -1,4 +1,4 @@
-import { createElement, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Sidebar from './components/Sidebar'
 import MemeGrid from './components/MemeGrid'
 import MemeDetailModal from './components/MemeDetailModal'
@@ -179,68 +179,68 @@ export default function App() {
     <div className="shell">
       <div className="backdrop" />
       <div className="layout">
-        {createElement(Sidebar, {
-          searchQuery,
-          onSearchQueryChange: setSearchQuery,
-          hasSearchQuery,
-          llmLoading,
-          onRunAiSearch: runAiSearch,
-          searchLoading,
-          searchError,
-          isDragging,
-          onDragEnter: (event) => {
+        <Sidebar
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          hasSearchQuery={hasSearchQuery}
+          llmLoading={llmLoading}
+          onRunAiSearch={runAiSearch}
+          searchLoading={searchLoading}
+          searchError={searchError}
+          isDragging={isDragging}
+          onDragEnter={(event) => {
             event.preventDefault()
             setIsDragging(true)
-          },
-          onDragLeave: (event) => {
+          }}
+          onDragLeave={(event) => {
             event.preventDefault()
             setIsDragging(false)
-          },
-          onDragOver: (event) => {
+          }}
+          onDragOver={(event) => {
             event.preventDefault()
             setIsDragging(true)
-          },
-          onDrop: handleDrop,
-          onChooseFiles: uploadFiles,
-          uploadProgress,
-          uploadMessage,
-          uploadErrors,
-          total,
-          pendingCount,
-          searchMode
-        })}
+          }}
+          onDrop={handleDrop}
+          onChooseFiles={uploadFiles}
+          uploadProgress={uploadProgress}
+          uploadMessage={uploadMessage}
+          uploadErrors={uploadErrors}
+          total={total}
+          pendingCount={pendingCount}
+          searchMode={searchMode}
+        />
 
-        {createElement(MemeGrid, {
-          hasSearchQuery,
-          searchResults,
-          searchQuery,
-          memes,
-          pendingCount,
-          collectionError,
-          shownMemes,
-          searchLoading,
-          page,
-          totalPages,
-          sortOption,
-          sortLabel,
-          sortOptions,
-          onSortChange: setSortOption,
-          onPreviousPage: () => setPage((current) => Math.max(1, current - 1)),
-          onNextPage: () => setPage((current) => Math.min(totalPages, current + 1)),
-          onOpenDetail: openDetail
-        })}
+        <MemeGrid
+          hasSearchQuery={hasSearchQuery}
+          searchResults={searchResults}
+          searchQuery={searchQuery}
+          memes={memes}
+          pendingCount={pendingCount}
+          collectionError={collectionError}
+          shownMemes={shownMemes}
+          searchLoading={searchLoading}
+          page={page}
+          totalPages={totalPages}
+          sortOption={sortOption}
+          sortLabel={sortLabel}
+          sortOptions={sortOptions}
+          onSortChange={setSortOption}
+          onPreviousPage={() => setPage((current) => Math.max(1, current - 1))}
+          onNextPage={() => setPage((current) => Math.min(totalPages, current + 1))}
+          onOpenDetail={openDetail}
+        />
       </div>
 
-      {createElement(MemeDetailModal, {
-        detailId,
-        detail,
-        detailLoading,
-        detailSaving,
-        detailError,
-        onClose: closeDetail,
-        onSave: saveMemeDetails,
-        onDelete: deleteMeme
-      })}
+      <MemeDetailModal
+        detailId={detailId}
+        detail={detail}
+        detailLoading={detailLoading}
+        detailSaving={detailSaving}
+        detailError={detailError}
+        onClose={closeDetail}
+        onSave={saveMemeDetails}
+        onDelete={deleteMeme}
+      />
     </div>
   )
 }
