@@ -1,0 +1,13 @@
+{
+  "model": "opusplan",
+  "alwaysThinkingEnabled": true,
+  "defaultMode": "dontAsk",
+  "permissions": {
+    "allow": [
+      "Bash"
+    ],
+    "deny": [
+      "Read(./.env)"
+    ]
+  }
+}
