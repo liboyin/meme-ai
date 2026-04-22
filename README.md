@@ -2,6 +2,12 @@
 
 Meme Organiser is a local-first meme library built with FastAPI, React, Vite, and SQLite. Images are stored directly in SQLite as BLOBs, fuzzy search runs fully offline, and AI search only needs network access for the configured OpenAI-compatible multimodal provider.
 
+## Prerequisites
+
+- Python 3.12+
+- Node.js 18+
+- [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
+
 ## Setup
 
 1. Copy the env template:
@@ -38,6 +44,8 @@ In a second terminal, start the Vite frontend:
 cd frontend
 npm run dev
 ```
+
+Then open `http://localhost:5173` in your browser.
 
 The frontend uses the Vite proxy, so the browser talks to `/api/...` directly during development.
 
