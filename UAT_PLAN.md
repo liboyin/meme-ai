@@ -45,27 +45,24 @@ Verify before any scenario runs. If any fails, abort and report the setup gap.
 4. **API-key awareness:** record whether `OPENAI_API_KEY` is set. Split the suite into two lanes:
    - **Lane A (key present):** run everything including AI-search and analysis-completion scenarios.
    - **Lane B (key absent):** run only the `llm_unavailable` scenarios (§6.2). Skip scenarios that require `analysis_status === "done"`.
-5. **Fixtures available:** `assets/aac19ebdd862255a.jpg` and `assets/be9c8532667268f1.jpg` exist.
+5. **Fixtures available:** all 8 files listed in §3 exist under `assets/`.
 
 ---
 
 ## 3. Test Data
 
-The agent prepares a fixture set in a scratch directory before the run:
+All fixtures live under `assets/` in the repository root. No generation step is needed.
 
-| Fixture | Purpose |
-|---------|---------|
-| `valid_small.png` (≤ 200 KB, 512×512) | Happy-path upload |
-| `valid_medium.jpg` (≈ 800 KB) | Second distinct happy-path upload |
-| `valid_webp.webp` (≈ 300 KB) | WEBP acceptance |
-| `too_big.jpg` (> 1.5 MB) | 413 path |
-| `animated.gif` | 415 path (animated rejection) |
-| `svg_disguised.svg` renamed to `.png` | MIME-vs-bytes mismatch rejection |
-| `duplicate.png` (byte-identical copy of `valid_small.png`) | 409 duplicate-SHA path |
-| A generated set of 12 JPEGs with distinctive visual contents | Search scenarios, pagination (>10 items) |
-
-Every fixture should have semantically distinct contents (hand-crafted
-descriptions we can predict after analysis) so search assertions are meaningful.
+| Fixture | Size | Purpose |
+|---------|------|---------|
+| `valid_small.jpeg` | 21 KB | Happy-path upload (primary) |
+| `valid_medium.jpg` | 118 KB | Happy-path upload (secondary) |
+| `valid_large.jpg` | 809 KB | Third distinct happy-path upload |
+| `valid_webp.webp` | 143 KB | WEBP acceptance |
+| `too_big.png` | 2.4 MB | 413 path (exceeds 1.5 MB limit) |
+| `animated.gif` | 1.5 MB | 415 path (animated rejection) |
+| `svg_disguised.png` | 114 B | MIME-vs-bytes mismatch rejection (SVG content, `.png` extension) |
+| `duplicate.jpeg` | 21 KB | 409 duplicate-SHA path (byte-identical to `valid_small.jpeg`) |
 
 ---
 
@@ -76,11 +73,11 @@ can reference failures unambiguously. Numbering gaps are intentional.
 
 ### 4.1 Upload (UP)
 
-#### UP-01 — Happy path, single valid PNG (drag-drop)
+#### UP-01 — Happy path, single valid JPEG (drag-drop)
 **Pre:** Gallery empty.
 **Steps:**
 1. Open `/`.
-2. Drop `valid_small.png` onto the `.dropzone` element.
+2. Drop `assets/valid_small.jpeg` onto the `.dropzone` element.
 3. Observe progress bar (`.progressMeter > div` width transitioning 0→100).
 4. Wait for success message matching `/\d+ memes uploaded/i`.
 
@@ -88,31 +85,31 @@ can reference failures unambiguously. Numbering gaps are intentional.
 - `POST /api/memes/upload` request fired with `multipart/form-data`, status `200`.
 - Response body contains `items[0].status === "created"` and numeric `id`.
 - Sidebar "Library size" increments by 1.
-- New card appears in grid with filename `valid_small.png` and a `pending` badge.
+- New card appears in grid with filename `valid_small.jpeg` and a `pending` badge.
 - Subsequent `GET /api/memes/pending` polling fires at ≈3 s cadence.
 
 #### UP-02 — Happy path, file-picker multi-upload
-**Steps:** Click "Choose files", set three valid files at once via `setInputFiles`.
+**Steps:** Click "Choose files", set `assets/valid_small.jpeg`, `assets/valid_medium.jpg`, and `assets/valid_large.jpg` at once via `setInputFiles`.
 **Assert:** Single POST with 3 parts; 3 `created` items; 3 new cards.
 
 #### UP-03 — Mixed valid + invalid batch
-**Steps:** Upload `valid_small.png`, `animated.gif`, `valid_webp.webp` in one batch.
+**Steps:** Upload `assets/valid_small.jpeg`, `assets/animated.gif`, `assets/valid_webp.webp` in one batch.
 **Assert:** Response `200`; `items` contains two `created` and one `error` whose
 `error` message matches `/Animated/i`. Two new cards appear; an error line with
 the animated-file message is rendered in the upload error block
 (`.errorText`). Library size increments by 2.
 
 #### UP-04 — Oversized file rejected
-**Steps:** Upload `too_big.jpg` alone.
+**Steps:** Upload `assets/too_big.png` alone.
 **Assert:** Error message in UI contains "too large" and the filename; no new
 card appears; library size unchanged. (`POST` returns 413 for single-file path.)
 
 #### UP-05 — Wrong MIME rejected
-**Steps:** Upload `svg_disguised.svg` renamed to `.png`.
+**Steps:** Upload `assets/svg_disguised.png` (SVG content with a `.png` extension).
 **Assert:** UI shows "Unsupported file type" with filename; no new card.
 
 #### UP-06 — Duplicate SHA256
-**Steps:** Upload `valid_small.png` twice (sequentially).
+**Steps:** Upload `assets/valid_small.jpeg`, then upload `assets/duplicate.jpeg` (byte-identical copy).
 **Assert:** Second upload surfaces "A meme with the same sha256 already exists.";
 library size increments by only 1.
 
@@ -122,7 +119,7 @@ library size increments by only 1.
 (Confirms the 50-file per-request cap.)
 
 #### UP-08 — Progress feedback is live
-**Steps:** Upload `valid_medium.jpg` and read progress-bar width at least three
+**Steps:** Upload `assets/valid_large.jpg` and read progress-bar width at least three
 distinct times before completion.
 **Assert:** Width values strictly increase and terminate at 100%.
 
