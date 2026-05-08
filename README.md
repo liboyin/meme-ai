@@ -19,8 +19,14 @@ cp .env.example .env
 2. Install backend dependencies with `uv`:
 
 ```bash
+# Development (includes pytest, mypy, ruff, ipython):
 uv sync --group dev
+
+# Production (runtime dependencies only):
+uv sync
 ```
+
+`default-groups = []` is set intentionally so a bare `uv sync` produces a minimal production install. The `--group dev` flag is always required to run tests or linting.
 
 3. Install frontend dependencies:
 
@@ -55,6 +61,7 @@ Backend:
 
 ```bash
 uv run --group dev pytest backend
+uv run --group dev mypy
 uv run --group dev ruff check backend
 ```
 
