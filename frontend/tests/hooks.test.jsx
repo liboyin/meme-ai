@@ -123,6 +123,20 @@ describe('useMemesCollection', () => {
 
     expect(global.fetch).toHaveBeenCalledTimes(1)
   })
+
+  it('refreshCollection has a stable identity across re-renders', async () => {
+    global.fetch.mockResolvedValue(makeResponse({ items: [], total: 0 }))
+
+    const { result, rerender } = renderHook(() => useMemesCollection())
+
+    await waitFor(() => {
+      expect(result.current.memes).toEqual([])
+    })
+
+    const first = result.current.refreshCollection
+    rerender()
+    expect(result.current.refreshCollection).toBe(first)
+  })
 })
 
 describe('useSearch', () => {
@@ -354,6 +368,41 @@ describe('useSearch', () => {
     expect(result.current.searchError).toBe('AI search failed.')
     expect(result.current.searchMode).toBe('llm')
   })
+
+  it('typing after AI search does not trigger fuzzy fetch or overwrite AI results', async () => {
+    vi.useFakeTimers()
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 10 }] }))
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 20 }] }))
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('cats') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(result.current.searchMode).toBe('fuzzy')
+
+    await act(async () => {
+      await result.current.runAiSearch()
+      await Promise.resolve()
+    })
+    expect(result.current.searchMode).toBe('llm')
+    expect(result.current.searchResults).toEqual([{ id: 20 }])
+
+    act(() => { result.current.setSearchQuery('cats memes') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(global.fetch).toHaveBeenCalledTimes(2)
+    expect(result.current.searchMode).toBe('llm')
+    expect(result.current.searchResults).toEqual([{ id: 20 }])
+  })
 })
 
 describe('usePendingPolling', () => {
@@ -487,6 +536,35 @@ describe('usePendingPolling', () => {
     })
 
     expect(result.current.pollingActive).toBe(false)
+  })
+
+  it('stable onPendingChanged identity does not restart the polling interval', async () => {
+    vi.useFakeTimers()
+
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1, analysis_status: 'pending' }] }))
+      .mockResolvedValue(makeResponse({ items: [{ id: 1, analysis_status: 'pending' }] }))
+
+    const setIntervalSpy = vi.spyOn(window, 'setInterval')
+    const stableCallback = vi.fn()
+
+    const { result, rerender } = renderHook(
+      ({ cb }) => usePendingPolling({ onPendingChanged: cb }),
+      { initialProps: { cb: stableCallback } }
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.pollingActive).toBe(true)
+    const intervalCountAfterStart = setIntervalSpy.mock.calls.length
+
+    rerender({ cb: stableCallback })
+
+    expect(setIntervalSpy.mock.calls.length).toBe(intervalCountAfterStart)
   })
 })
 
