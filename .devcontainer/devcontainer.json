@@ -1,8 +1,11 @@
 {
   "name": "meme-ai-dev",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "context": "."
   },
+  "initializeCommand": "test -f \"${localWorkspaceFolder}/.env\" || cp \"${localWorkspaceFolder}/.env.example\" \"${localWorkspaceFolder}/.env\"",
+  "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
   "remoteUser": "vscode",
   "forwardPorts": [8000, 5173],
   "mounts": [

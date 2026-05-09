@@ -55,6 +55,8 @@ Then open `http://localhost:5173` in your browser.
 
 The frontend uses the Vite proxy, so the browser talks to `/api/...` directly during development.
 
+The devcontainer starts with `.env` loaded through Docker's `--env-file` option. Rebuild or reopen the container after changing `.env` so the container receives the updated environment variables.
+
 ## Tests And Linting
 
 Backend:
