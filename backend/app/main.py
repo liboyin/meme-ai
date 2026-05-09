@@ -281,10 +281,8 @@ def delete_meme(meme_id: int, db: Connection = Depends(get_db)) -> DeleteOut:
 
 
 @app.get("/api/search", response_model=SearchOut)
-def fuzzy_search(q: str, mode: str = "fuzzy", db: Connection = Depends(get_db)) -> SearchOut:
+def fuzzy_search(q: str, db: Connection = Depends(get_db)) -> SearchOut:
     """Search memes using FTS5 full-text search."""
-    if mode != "fuzzy":
-        raise HTTPException(status_code=400, detail="Unsupported mode")
     return SearchOut(items=[MemeSearchOut.model_validate(i) for i in MemeRepository(db).search_fts(q, limit=20)])
 
 
