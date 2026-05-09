@@ -19,6 +19,10 @@ export default function useSearch() {
       return
     }
 
+    if (searchMode === 'llm') {
+      return
+    }
+
     let cancelled = false
     const timeoutId = window.setTimeout(async () => {
       try {
@@ -51,7 +55,7 @@ export default function useSearch() {
       cancelled = true
       window.clearTimeout(timeoutId)
     }
-  }, [hasSearchQuery, searchQuery])
+  }, [hasSearchQuery, searchQuery, searchMode])
 
   async function runAiSearch() {
     if (!hasSearchQuery) {
