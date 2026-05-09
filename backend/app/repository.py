@@ -59,9 +59,7 @@ class MemeRepository:
         """
         if isinstance(tags, list):
             return tags
-        if not tags:
-            return []
-        if not isinstance(tags, str):
+        if not tags or not isinstance(tags, str):
             return []
         try:
             parsed = json.loads(tags)
@@ -77,41 +75,35 @@ class MemeRepository:
     @classmethod
     def _api_payload(
         cls,
-        meme: Meme | Mapping[str, Any],
+        meme: Mapping[str, Any],
         *,
         include_rank: bool = False,
     ) -> dict[str, Any]:
-        """Build an API-ready dict from a Meme or row mapping.
+        """Build an API-ready dict from a meme row mapping.
 
         Args:
-            meme: A Meme instance or dict-like row.
+            meme: A dict-like row mapping from a database query.
             include_rank: If True, include the rank/score field.
 
         Returns:
             Dict suitable for JSON serialisation in API responses.
         """
-
-        def get(field: str) -> Any:
-            if isinstance(meme, Mapping):
-                return meme.get(field)
-            return getattr(meme, field, None)
-
-        payload = {
-            "id": get("id"),
-            "filename": get("filename"),
-            "mime_type": get("mime_type"),
-            "sha256": get("sha256"),
-            "uploaded_at": get("uploaded_at"),
-            "description": get("description"),
-            "why_funny": get("why_funny"),
-            "references": get("references"),
-            "use_cases": get("use_cases"),
-            "tags": cls._safe_parse_tags(get("tags")),
-            "analysis_status": get("analysis_status"),
-            "analysis_error": get("analysis_error"),
+        payload: dict[str, Any] = {
+            "id": meme.get("id"),
+            "filename": meme.get("filename"),
+            "mime_type": meme.get("mime_type"),
+            "sha256": meme.get("sha256"),
+            "uploaded_at": meme.get("uploaded_at"),
+            "description": meme.get("description"),
+            "why_funny": meme.get("why_funny"),
+            "references": meme.get("references"),
+            "use_cases": meme.get("use_cases"),
+            "tags": cls._safe_parse_tags(meme.get("tags")),
+            "analysis_status": meme.get("analysis_status"),
+            "analysis_error": meme.get("analysis_error"),
         }
         if include_rank:
-            payload["rank"] = get("score")
+            payload["rank"] = meme.get("score")
         return payload
 
     def get_by_sha256(self, sha256: str) -> Meme | None:
@@ -186,7 +178,7 @@ class MemeRepository:
                 ),
             )
         except sqlite3.IntegrityError as exc:
-            if "sha256" in str(exc).lower():
+            if "sha256" in (exc.args[0] or "").lower():
                 existing = self.get_by_sha256(payload["sha256"])
                 raise DuplicateMemeError(
                     payload["sha256"],
@@ -277,6 +269,11 @@ class MemeRepository:
     def update_analysis(self, meme_id: int, payload: dict, status: str, error: str | None = None) -> None:
         """Store LLM analysis results for a meme.
 
+        Only applies the update when the meme still has ``analysis_status =
+        'pending'``.  This makes the call a no-op if the meme was deleted or
+        if the user manually edited the metadata while analysis was in-flight
+        (which sets the status to ``'done'`` via ``update_search_fields``).
+
         Args:
             meme_id: ID of the meme to update.
             payload: Dict with description, why_funny, references, use_cases, tags.
@@ -293,7 +290,7 @@ class MemeRepository:
                 tags = ?,
                 analysis_status = ?,
                 analysis_error = ?
-            WHERE id = ?
+            WHERE id = ? AND analysis_status = 'pending'
             """,
             (
                 payload.get("description"),
@@ -312,6 +309,9 @@ class MemeRepository:
     def update_search_fields(self, meme_id: int, payload: Mapping[str, Any]) -> dict | None:
         """Overwrite a meme's searchable fields and mark analysis as done.
 
+        Runs a single UPDATE rather than a prior existence-check SELECT.
+        If no row is matched, returns ``None``.
+
         Args:
             meme_id: ID of the meme to update.
             payload: Dict with description, why_funny, references, use_cases, tags.
@@ -319,20 +319,11 @@ class MemeRepository:
         Returns:
             Updated meme metadata dict, or None if the meme doesn't exist.
         """
-        exists = self.db.execute("SELECT id FROM memes WHERE id = ?", (meme_id,)).fetchone()
-        if exists is None:
-            return None
-
-        self.db.execute(
+        cursor = self.db.execute(
             """
             UPDATE memes
-            SET description = ?,
-                why_funny = ?,
-                "references" = ?,
-                use_cases = ?,
-                tags = ?,
-                analysis_status = ?,
-                analysis_error = NULL
+            SET description = ?, why_funny = ?, "references" = ?,
+                use_cases = ?, tags = ?, analysis_status = ?, analysis_error = NULL
             WHERE id = ?
             """,
             (
@@ -345,6 +336,8 @@ class MemeRepository:
                 meme_id,
             ),
         )
+        if not cursor.rowcount:
+            return None
         self.db.commit()
         return self.get_metadata(meme_id)
 
