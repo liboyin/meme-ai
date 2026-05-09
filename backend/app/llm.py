@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any
 
-from openai import AsyncOpenAI, BadRequestError
+from openai import AsyncOpenAI, BadRequestError, DefaultAsyncHttpxClient
 from openai.types.chat import (
     ChatCompletionContentPartImageParam,
     ChatCompletionContentPartTextParam,
@@ -61,7 +61,13 @@ def _client() -> AsyncOpenAI:
     """Return an AsyncOpenAI client, raising LLMUnavailableError if unconfigured."""
     if not settings.openai_api_key:
         raise LLMUnavailableError
-    return AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    # Pass http_client explicitly to avoid the `proxies` kwarg that openai 1.52.x
+    # forwards to httpx — httpx 0.28+ removed that parameter entirely.
+    return AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        http_client=DefaultAsyncHttpxClient(),
+    )
 
 
 def _normalise_analysis_payload(data: Any) -> dict[str, Any]:
