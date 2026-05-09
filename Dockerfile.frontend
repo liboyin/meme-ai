@@ -1,3 +1,5 @@
+# Dev-only: serves the Vite development server.
+# For production, build with `npm run build` and serve the dist/ folder.
 FROM node:24-alpine
 
 RUN addgroup -S app && adduser -S app -G app

@@ -6,9 +6,11 @@ This file is intended for AI agents.
 - When a design decision feels like an assumption, ask why and update documentation if an explanation is provided.
 - All new & modified functions/methods in non-test scripts must have Google-style docstrings; unit test functions must have a one-liner docstring.
 
-# Implementation guidelines
+# Implementation Guidelines
 
-Prefer the simplest implementation, even if it may violate SOLID principles.
+- Prefer the simplest implementation, even if it violates SOLID principles.
+- For multi-step plans or multiple isolated changes, use subagents.
+- Break changes into small, functionally isolated chunks. Commit as you go.
 
 # Unit Tests + Static Analysis
 
@@ -25,7 +27,7 @@ npm run test:coverage
 npm run lint
 ```
 
-Coverage must be at least 85% for each individual source file and for the overall project.
+Backend coverage must be at least 85% overall (enforced by pytest). Frontend coverage thresholds are configured in vite.config.js.
 
 Backend tests are executed in a random order due to `pytest-randomly`; do not rely on execution order.
 
