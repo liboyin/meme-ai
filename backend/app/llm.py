@@ -57,17 +57,38 @@ class LLMUnavailableError(RuntimeError):
     pass
 
 
-def _client() -> AsyncOpenAI:
-    """Return an AsyncOpenAI client, raising LLMUnavailableError if unconfigured."""
+_openai_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    """Return the shared AsyncOpenAI singleton, creating it on first call.
+
+    Raises:
+        LLMUnavailableError: If OPENAI_API_KEY is not configured.
+    """
+    global _openai_client
     if not settings.openai_api_key:
         raise LLMUnavailableError
     # Pass http_client explicitly to avoid the `proxies` kwarg that openai 1.52.x
     # forwards to httpx — httpx 0.28+ removed that parameter entirely.
-    return AsyncOpenAI(
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
-        http_client=DefaultAsyncHttpxClient(),
-    )
+    if _openai_client is None:
+        _openai_client = AsyncOpenAI(
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url,
+            http_client=DefaultAsyncHttpxClient(),
+        )
+    return _openai_client
+
+
+async def close_client() -> None:
+    """Close and reset the shared AsyncOpenAI singleton.
+
+    Safe to call even if the client was never initialised.
+    """
+    global _openai_client
+    if _openai_client is not None:
+        await _openai_client.close()
+        _openai_client = None
 
 
 def _normalise_analysis_payload(data: Any) -> dict[str, Any]:
@@ -152,7 +173,7 @@ async def _create_json_completion(
     Returns:
         Parsed JSON from the LLM response.
     """
-    client = _client()
+    client = _get_client()
     json_schema: JSONSchema = {
         "name": schema_name,
         "strict": True,

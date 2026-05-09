@@ -1,83 +1,8 @@
 import hashlib
-import json
 import time
 from datetime import datetime, timezone
-from importlib import reload
-from io import BytesIO
-from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
-from PIL import Image
-
-
-def image_bytes(format_name="PNG", color=(255, 0, 0)):
-    image = Image.new("RGB", (32, 24), color)
-    buffer = BytesIO()
-    image.save(buffer, format=format_name)
-    return buffer.getvalue()
-
-
-def fake_response(content):
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
-    )
-
-
-class FakeChatCompletions:
-    async def create(self, *, messages, **_kwargs):
-        payload = messages[-1]["content"]
-
-        if isinstance(payload, list):
-            return fake_response(
-                json.dumps(
-                    {
-                        "description": "Distracted partner eye-roll meme.",
-                        "why_funny": "The expression mismatch makes the overreaction relatable.",
-                        "references": "Classic reaction image energy.",
-                        "use_cases": "When something mildly annoying feels catastrophic.",
-                        "tags": ["dramatic", "reaction", "annoyed"],
-                    }
-                )
-            )
-
-        prompt = payload if isinstance(payload, str) else ""
-        candidates_raw = prompt.split("Candidates: ", maxsplit=1)[1]
-        candidates = json.loads(candidates_raw)
-        rankings = [
-            {
-                "id": candidate["id"],
-                "score": float(10 - index),
-                "reason": f"Candidate {candidate['id']} matches the dramatic reaction tone.",
-            }
-            for index, candidate in enumerate(candidates)
-        ]
-        return fake_response(json.dumps(rankings))
-
-
-class FakeClient:
-    def __init__(self):
-        self.chat = SimpleNamespace(completions=FakeChatCompletions())
-
-
-def load_test_modules(monkeypatch, tmp_path, *, api_key="test-key"):
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "memes.db"))
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
-    monkeypatch.setenv("OPENAI_MODEL", "fake-model")
-    monkeypatch.setenv("OPENAI_API_KEY", api_key)
-
-    from backend.app import config, database, init_db, llm, main, repository
-
-    reload(config)
-    reload(database)
-    reload(init_db)
-    reload(repository)
-    reload(llm)
-    reload(main)
-
-    if api_key:
-        monkeypatch.setattr(llm, "_client", lambda: FakeClient())
-
-    return config, database, init_db, llm, main, repository
 
 
 def wait_for_status(client, meme_id, expected_status, timeout=1.5):
@@ -92,13 +17,10 @@ def wait_for_status(client, meme_id, expected_status, timeout=1.5):
     raise AssertionError(f"Meme {meme_id} never reached status {expected_status!r}")
 
 
-def test_full_backend_flow_with_mocked_llm(monkeypatch, tmp_path):
+def test_full_backend_flow_with_mocked_llm(load_test_modules, image_bytes):
     """Upload, analyse, list, image-serve, fuzzy-search, LLM-search, and delete a meme end-to-end."""
-    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="test-key",
-    )
+    modules = load_test_modules(api_key="test-key")
+    main = modules.main
 
     with TestClient(main.app) as client:
         upload = client.post(
@@ -139,13 +61,10 @@ def test_full_backend_flow_with_mocked_llm(monkeypatch, tmp_path):
         assert listing_after_delete.json()["total"] == 0
 
 
-def test_upload_rejects_single_invalid_file_with_415(monkeypatch, tmp_path):
+def test_upload_rejects_single_invalid_file_with_415(load_test_modules):
     """A single-file upload with an unsupported type returns 415."""
-    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="test-key",
-    )
+    modules = load_test_modules(api_key="test-key")
+    main = modules.main
 
     with TestClient(main.app) as client:
         response = client.post(
@@ -157,13 +76,10 @@ def test_upload_rejects_single_invalid_file_with_415(monkeypatch, tmp_path):
     assert "Unsupported file type" in response.json()["detail"]
 
 
-def test_multi_upload_allows_partial_success(monkeypatch, tmp_path):
+def test_multi_upload_allows_partial_success(load_test_modules, image_bytes):
     """A batch upload with one valid and one invalid file returns 200 with per-item status."""
-    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="test-key",
-    )
+    modules = load_test_modules(api_key="test-key")
+    main = modules.main
 
     with TestClient(main.app) as client:
         response = client.post(
@@ -181,13 +97,10 @@ def test_multi_upload_allows_partial_success(monkeypatch, tmp_path):
     assert "Unsupported file type" in items[1]["error"]
 
 
-def test_upload_rejects_duplicate_sha256_with_409(monkeypatch, tmp_path):
+def test_upload_rejects_duplicate_sha256_with_409(load_test_modules, image_bytes):
     """Uploading the same file twice returns 409 and keeps only one row in the database."""
-    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="",
-    )
+    modules = load_test_modules(api_key="")
+    main = modules.main
 
     raw = image_bytes()
 
@@ -211,13 +124,10 @@ def test_upload_rejects_duplicate_sha256_with_409(monkeypatch, tmp_path):
         assert listing.json()["total"] == 1
 
 
-def test_multi_upload_reports_duplicate_sha256_as_item_error(monkeypatch, tmp_path):
+def test_multi_upload_reports_duplicate_sha256_as_item_error(load_test_modules, image_bytes):
     """In a batch upload, a duplicate file produces an item-level error while others succeed."""
-    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="",
-    )
+    modules = load_test_modules(api_key="")
+    main = modules.main
 
     duplicate_bytes = image_bytes()
     fresh_bytes = image_bytes(color=(0, 255, 0))
@@ -254,13 +164,12 @@ def test_multi_upload_reports_duplicate_sha256_as_item_error(monkeypatch, tmp_pa
     ]
 
 
-def test_upload_persists_phash(monkeypatch, tmp_path):
+def test_upload_persists_phash(load_test_modules, image_bytes):
     """The perceptual hash computed at upload time is stored correctly in the database."""
-    _config, database, _init_db, _llm, main, repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="",
-    )
+    modules = load_test_modules(api_key="")
+    database = modules.database
+    main = modules.main
+    repository = modules.repository
 
     raw = image_bytes(color=(12, 34, 56))
 
@@ -280,13 +189,14 @@ def test_upload_persists_phash(monkeypatch, tmp_path):
     db.close()
 
 
-def test_list_memes_supports_sorting(monkeypatch, tmp_path):
+def test_list_memes_supports_sorting(load_test_modules, image_bytes):
     """GET /api/memes returns memes in the correct order for all sort_by/sort_order combinations."""
-    _config, database, init_db, _llm, main, repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="",
-    )
+    modules = load_test_modules(api_key="")
+    database = modules.database
+    init_db = modules.init_db
+    main = modules.main
+    repository = modules.repository
+
     init_db.init_db()
 
     db = database.SessionLocal()
@@ -354,13 +264,10 @@ def test_list_memes_supports_sorting(monkeypatch, tmp_path):
         assert invalid_sort.status_code == 422
 
 
-def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(monkeypatch, tmp_path):
+def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(load_test_modules, image_bytes):
     """Without an API key, analysis errors out and the LLM search endpoint returns 503."""
-    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="",
-    )
+    modules = load_test_modules(api_key="")
+    main = modules.main
 
     with TestClient(main.app) as client:
         upload = client.post(
@@ -389,13 +296,10 @@ def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(monkeypatch, 
         assert pending.json()["items"][0] == {"id": meme_id, "analysis_status": "error"}
 
 
-def test_manual_metadata_update_reindexes_fts(monkeypatch, tmp_path):
+def test_manual_metadata_update_reindexes_fts(load_test_modules, image_bytes):
     """PUT /api/memes/{id} persists new fields and makes them immediately searchable via FTS."""
-    _config, _database, _init_db, _llm, main, _repository = load_test_modules(
-        monkeypatch,
-        tmp_path,
-        api_key="",
-    )
+    modules = load_test_modules(api_key="")
+    main = modules.main
 
     with TestClient(main.app) as client:
         upload = client.post(
@@ -429,16 +333,13 @@ def test_manual_metadata_update_reindexes_fts(monkeypatch, tmp_path):
         assert fuzzy.json()["items"][0]["id"] == meme_id
 
 
-def test_startup_requeues_pending_memes(monkeypatch, tmp_path):
+def test_startup_requeues_pending_memes(load_test_modules, image_bytes):
     """Memes left in pending state before a restart are analysed when the app starts up."""
-    (
-        _config,
-        database,
-        init_db,
-        _llm,
-        main,
-        repository,
-    ) = load_test_modules(monkeypatch, tmp_path, api_key="test-key")
+    modules = load_test_modules(api_key="test-key")
+    database = modules.database
+    init_db = modules.init_db
+    main = modules.main
+    repository = modules.repository
 
     init_db.init_db()
     db = database.SessionLocal()

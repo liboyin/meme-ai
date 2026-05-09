@@ -1,7 +1,6 @@
 import asyncio
 import json
 from datetime import datetime, timezone
-from importlib import reload
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -10,46 +9,19 @@ from fastapi import HTTPException
 from PIL import Image, UnidentifiedImageError
 
 
-def image_bytes(format_name="PNG", color=(255, 0, 0)):
-    image = Image.new("RGB", (24, 24), color)
+def image_bytes_with_phash(modules, format_name="PNG", color=(255, 0, 0)):
+    """Return raw image bytes and their perceptual hash for use in repository tests."""
+    image = Image.new("RGB", (32, 24), color)
     buffer = BytesIO()
     image.save(buffer, format=format_name)
-    return buffer.getvalue()
-
-
-def image_bytes_with_phash(modules, format_name="PNG", color=(255, 0, 0)):
-    raw = image_bytes(format_name=format_name, color=color)
+    raw = buffer.getvalue()
     return raw, modules.main.compute_image_phash(raw)
 
 
 def fake_response(content):
+    """Wrap *content* in a minimal OpenAI ChatCompletion-shaped object."""
     return SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
-    )
-
-
-def load_test_modules(monkeypatch, tmp_path, *, api_key="test-key"):
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "memes.db"))
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
-    monkeypatch.setenv("OPENAI_MODEL", "fake-model")
-    monkeypatch.setenv("OPENAI_API_KEY", api_key)
-
-    from backend.app import config, database, init_db, llm, main, repository
-
-    reload(config)
-    reload(database)
-    reload(init_db)
-    reload(repository)
-    reload(llm)
-    reload(main)
-
-    return SimpleNamespace(
-        config=config,
-        database=database,
-        init_db=init_db,
-        llm=llm,
-        main=main,
-        repository=repository,
     )
 
 
@@ -81,9 +53,9 @@ def install_image_open(monkeypatch, main_module, *entries):
     monkeypatch.setattr(main_module.Image, "open", fake_open)
 
 
-def test_validate_image_bytes_and_recent_status_snapshot(monkeypatch, tmp_path):
+def test_validate_image_bytes_and_recent_status_snapshot(monkeypatch, load_test_modules, image_bytes):
     """Covers size, format, animation, and MIME-mismatch rejection paths in validate_image_bytes."""
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     main = modules.main
 
     assert (
@@ -159,10 +131,9 @@ def test_validate_image_bytes_and_recent_status_snapshot(monkeypatch, tmp_path):
     assert result == "image/webp"
 
 
-
-def test_repository_edge_cases(monkeypatch, tmp_path):
+def test_repository_edge_cases(load_test_modules, image_bytes):
     """Covers no-op operations, FTS search, tag parsing, and API payload structure."""
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     modules.init_db.init_db()
 
     db = modules.database.SessionLocal()
@@ -226,9 +197,9 @@ def test_repository_edge_cases(monkeypatch, tmp_path):
     db.close()
 
 
-def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
+def test_repository_rejects_duplicate_sha256(load_test_modules):
     """DuplicateMemeError is raised and the original row is unchanged on sha256 collision."""
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     modules.init_db.init_db()
 
     db = modules.database.SessionLocal()
@@ -264,9 +235,9 @@ def test_repository_rejects_duplicate_sha256(monkeypatch, tmp_path):
     db.close()
 
 
-def test_repository_list_memes_supports_requested_sort(monkeypatch, tmp_path):
+def test_repository_list_memes_supports_requested_sort(load_test_modules, image_bytes):
     """list_memes returns rows in the correct order for all supported sort fields and directions."""
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     modules.init_db.init_db()
 
     db = modules.database.SessionLocal()
@@ -323,9 +294,9 @@ def test_repository_list_memes_supports_requested_sort(monkeypatch, tmp_path):
     db.close()
 
 
-def test_init_db_adds_phash_column_and_sort_indexes(monkeypatch, tmp_path):
+def test_init_db_adds_phash_column_and_sort_indexes(load_test_modules):
     """init_db creates the phash column and all expected sort indexes."""
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     modules.init_db.init_db()
 
     db = modules.database.SessionLocal()
@@ -341,9 +312,9 @@ def test_init_db_adds_phash_column_and_sort_indexes(monkeypatch, tmp_path):
 
 
 @pytest.mark.anyio
-async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch, tmp_path):
+async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch, load_test_modules):
     """analyze_and_store is a no-op for unknown IDs and sets error status on analysis failure."""
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     modules.init_db.init_db()
 
     await modules.main.analyze_and_store(99999)
@@ -377,9 +348,9 @@ async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch
 
 
 @pytest.mark.anyio
-async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkeypatch, tmp_path):
+async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkeypatch, load_test_modules):
     """A manual update that completes before slow LLM analysis finishes takes precedence."""
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     modules.init_db.init_db()
 
     db = modules.database.SessionLocal()
@@ -445,7 +416,7 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
     db.close()
 
 
-def test_update_search_fields_marks_errored_meme_as_done(monkeypatch, tmp_path):
+def test_update_search_fields_marks_errored_meme_as_done(load_test_modules):
     """Editing metadata on an errored meme sets analysis_status to done and clears the error.
 
     This is intentional: a manual metadata edit means the user is taking ownership of the
@@ -453,7 +424,7 @@ def test_update_search_fields_marks_errored_meme_as_done(monkeypatch, tmp_path):
     The done status also prevents analyze_and_store from overwriting the user's data if a
     background task is still in flight.
     """
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     modules.init_db.init_db()
 
     db = modules.database.SessionLocal()
@@ -489,13 +460,13 @@ def test_update_search_fields_marks_errored_meme_as_done(monkeypatch, tmp_path):
     db.close()
 
 
-def test_llm_helpers_cover_validation_and_json_extraction(monkeypatch, tmp_path):
+def test_llm_helpers_cover_validation_and_json_extraction(load_test_modules):
     """_normalise_analysis_payload and _extract_json handle valid, partial, and invalid inputs."""
-    modules = load_test_modules(monkeypatch, tmp_path, api_key="")
+    modules = load_test_modules(api_key="")
     llm = modules.llm
 
     with pytest.raises(llm.LLMUnavailableError):
-        llm._client()
+        llm._get_client()
 
     assert llm._normalise_analysis_payload(
         {
@@ -526,9 +497,9 @@ def test_llm_helpers_cover_validation_and_json_extraction(monkeypatch, tmp_path)
 
 
 @pytest.mark.anyio
-async def test_llm_completion_fallback_and_ranking_edge_cases(monkeypatch, tmp_path):
+async def test_llm_completion_fallback_and_ranking_edge_cases(monkeypatch, load_test_modules):
     """_create_json_completion falls back to prompt-only JSON, and llm_rank skips malformed items."""
-    modules = load_test_modules(monkeypatch, tmp_path)
+    modules = load_test_modules()
     llm = modules.llm
 
     class FakeBadRequestError(Exception):
@@ -548,7 +519,7 @@ async def test_llm_completion_fallback_and_ranking_edge_cases(monkeypatch, tmp_p
     fake_client = SimpleNamespace(chat=SimpleNamespace(completions=fake_completions))
 
     monkeypatch.setattr(llm, "BadRequestError", FakeBadRequestError)
-    monkeypatch.setattr(llm, "_client", lambda: fake_client)
+    monkeypatch.setattr(llm, "_get_client", lambda: fake_client)
 
     parsed = await llm._create_json_completion(
         messages=[{"role": "user", "content": "hello"}],
