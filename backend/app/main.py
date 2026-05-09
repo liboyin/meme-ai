@@ -105,10 +105,7 @@ def validate_image_bytes(*, filename: str | None, mime_type: str | None, data: b
             detail=f"Animated images are not supported: {filename or 'upload'}",
         )
 
-    expected_mime_type = ALLOWED_MIME[detected_format]
-    if mime_type and mime_type != expected_mime_type:
-        raise HTTPException(status_code=415, detail=f"Unsupported file type: {filename or 'upload'}")
-    return expected_mime_type
+    return ALLOWED_MIME[detected_format]
 
 
 def compute_image_phash(data: bytes) -> str:

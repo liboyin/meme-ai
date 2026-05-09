@@ -142,19 +142,21 @@ def test_validate_image_bytes_and_recent_status_snapshot(monkeypatch, tmp_path):
         main.validate_image_bytes(filename="anim.webp", mime_type="image/webp", data=b"data")
     assert animated.value.status_code == 415
 
+    # MIME type reported by the client is ignored — Pillow's detection is the ground truth.
+    # A WEBP file sent with application/octet-stream must be accepted (regression guard for
+    # the UP-03 UAT finding where curl didn't send image/webp).
     install_image_open(
         monkeypatch,
         main,
-        FakeImageContext(format_name="PNG"),
-        FakeImageContext(format_name="PNG"),
+        FakeImageContext(format_name="WEBP"),
+        FakeImageContext(format_name="WEBP"),
     )
-    with pytest.raises(HTTPException) as mismatched_mime:
-        main.validate_image_bytes(
-            filename="wrong-type.png",
-            mime_type="image/jpeg",
-            data=b"data",
-        )
-    assert mismatched_mime.value.status_code == 415
+    result = main.validate_image_bytes(
+        filename="valid.webp",
+        mime_type="application/octet-stream",
+        data=b"data",
+    )
+    assert result == "image/webp"
 
 
 
