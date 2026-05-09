@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const PAGE_SIZE = 40
 export const DEFAULT_SORT_OPTION = 'uploaded_at_desc'
@@ -59,14 +59,12 @@ export default function useMemesCollection() {
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total])
 
-  function refreshCollection() {
-    setRefreshToken((value) => value + 1)
-  }
+  const refreshCollection = useCallback(() => setRefreshToken((v) => v + 1), [])
 
-  function changeSortOption(nextSortOption) {
+  const changeSortOption = useCallback((nextSortOption) => {
     setSortOption(SORT_OPTIONS_BY_VALUE[nextSortOption] ? nextSortOption : DEFAULT_SORT_OPTION)
     setPage(1)
-  }
+  }, [])
 
   return {
     memes,
