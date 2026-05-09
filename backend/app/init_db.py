@@ -34,12 +34,6 @@ def init_db() -> None:
         try:
             db.execute(
                 """
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_memes_sha256
-                ON memes (sha256)
-                """
-            )
-            db.execute(
-                """
                 CREATE INDEX IF NOT EXISTS idx_memes_uploaded_at_sort
                 ON memes (uploaded_at DESC, id DESC)
                 """
