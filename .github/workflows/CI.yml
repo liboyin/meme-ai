@@ -19,7 +19,7 @@ jobs:
           cache-dependency-glob: pyproject.toml
 
       - name: Install backend dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --locked
 
       - name: Run backend ruff checks
         run: uv run --group dev ruff check backend
