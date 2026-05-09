@@ -416,6 +416,40 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
     db.close()
 
 
+@pytest.mark.anyio
+async def test_resume_pending_analysis_logs_task_failures(monkeypatch, load_test_modules, image_bytes, caplog):
+    """resume_pending_analysis logs errors from failed startup tasks without raising."""
+    import logging
+
+    modules = load_test_modules()
+    modules.init_db.init_db()
+
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+    raw = image_bytes()
+    phash = modules.main.compute_image_phash(raw)
+    meme = repo.create_meme(
+        filename="startup-fail.png",
+        mime_type="image/png",
+        sha256="startup-fail-hash",
+        phash=phash,
+        image_data=raw,
+        uploaded_at=datetime.now(timezone.utc).isoformat(),
+        analysis_status="pending",
+    )
+    db.close()
+
+    async def always_raise(meme_id: int) -> None:
+        raise RuntimeError("startup crash")
+
+    monkeypatch.setattr(modules.main, "analyze_and_store", always_raise)
+
+    with caplog.at_level(logging.ERROR):
+        await modules.main.resume_pending_analysis()
+
+    assert any(str(meme.id) in r.message for r in caplog.records)
+
+
 def test_update_search_fields_marks_errored_meme_as_done(load_test_modules):
     """Editing metadata on an errored meme sets analysis_status to done and clears the error.
 
@@ -494,6 +528,45 @@ def test_llm_helpers_cover_validation_and_json_extraction(load_test_modules):
 
     with pytest.raises(ValueError):
         llm._extract_json("no structured output here")
+
+
+@pytest.mark.anyio
+async def test_get_client_caches_singleton_and_close_client_resets_it(monkeypatch, load_test_modules):
+    """_get_client returns the same instance on repeated calls; close_client closes and resets it."""
+    from importlib import reload as importlib_reload
+
+    modules = load_test_modules()
+    llm = modules.llm
+
+    # load_test_modules patches _get_client to a lambda so tests don't hit the network.
+    # Re-reload llm to restore the real implementation and reset _openai_client to None,
+    # while keeping the env vars (already set by monkeypatch) in place.
+    importlib_reload(llm)
+
+    constructor_calls: list[object] = []
+
+    class FakeClient:
+        async def close(self) -> None:
+            pass
+
+    def fake_constructor(**_kwargs: object) -> FakeClient:
+        instance = FakeClient()
+        constructor_calls.append(instance)
+        return instance
+
+    monkeypatch.setattr(llm, "DefaultAsyncHttpxClient", lambda: None)
+    monkeypatch.setattr(llm, "AsyncOpenAI", fake_constructor)
+
+    c1 = llm._get_client()
+    c2 = llm._get_client()
+    assert len(constructor_calls) == 1, "AsyncOpenAI should be instantiated only once"
+    assert c1 is c2, "_get_client should return the cached instance on the second call"
+
+    await llm.close_client()
+    assert llm._openai_client is None, "close_client should reset the singleton to None"
+
+    await llm.close_client()
+    assert len(constructor_calls) == 1, "close_client on a None singleton should be a no-op"
 
 
 @pytest.mark.anyio
