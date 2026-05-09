@@ -445,6 +445,50 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
     db.close()
 
 
+def test_update_search_fields_marks_errored_meme_as_done(monkeypatch, tmp_path):
+    """Editing metadata on an errored meme sets analysis_status to done and clears the error.
+
+    This is intentional: a manual metadata edit means the user is taking ownership of the
+    content, so the meme is treated as fully indexed regardless of its previous LLM state.
+    The done status also prevents analyze_and_store from overwriting the user's data if a
+    background task is still in flight.
+    """
+    modules = load_test_modules(monkeypatch, tmp_path)
+    modules.init_db.init_db()
+
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+    raw, phash = image_bytes_with_phash(modules)
+    meme = repo.create_meme(
+        filename="errored.png",
+        mime_type="image/png",
+        sha256="errored-hash",
+        phash=phash,
+        image_data=raw,
+        uploaded_at=datetime.now(timezone.utc).isoformat(),
+        analysis_status="error",
+        analysis_error="LLM features are unavailable because OPENAI_API_KEY is not configured.",
+    )
+    assert meme.analysis_status == "error"
+    assert meme.analysis_error is not None
+
+    updated = repo.update_search_fields(
+        meme.id,
+        {
+            "description": "User-provided description",
+            "why_funny": "User explanation",
+            "references": "User refs",
+            "use_cases": "User use cases",
+            "tags": ["manual"],
+        },
+    )
+    assert updated is not None
+    assert updated["analysis_status"] == "done"
+    assert updated["analysis_error"] is None
+    assert updated["description"] == "User-provided description"
+    db.close()
+
+
 def test_llm_helpers_cover_validation_and_json_extraction(monkeypatch, tmp_path):
     """_normalise_analysis_payload and _extract_json handle valid, partial, and invalid inputs."""
     modules = load_test_modules(monkeypatch, tmp_path, api_key="")
