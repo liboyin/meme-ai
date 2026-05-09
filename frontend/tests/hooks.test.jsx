@@ -19,6 +19,14 @@ function makeResponse(data, ok = true) {
   }
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((nextResolve) => {
+    resolve = nextResolve
+  })
+  return { promise, resolve }
+}
+
 beforeEach(() => {
   vi.useRealTimers()
   global.fetch = vi.fn()
@@ -369,11 +377,12 @@ describe('useSearch', () => {
     expect(result.current.searchMode).toBe('llm')
   })
 
-  it('typing after AI search does not trigger fuzzy fetch or overwrite AI results', async () => {
+  it('typing after AI search clears AI results and refreshes fuzzy results', async () => {
     vi.useFakeTimers()
     global.fetch
       .mockResolvedValueOnce(makeResponse({ items: [{ id: 10 }] }))
       .mockResolvedValueOnce(makeResponse({ items: [{ id: 20 }] }))
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 30 }] }))
 
     const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
 
@@ -393,15 +402,58 @@ describe('useSearch', () => {
     expect(result.current.searchResults).toEqual([{ id: 20 }])
 
     act(() => { result.current.setSearchQuery('cats memes') })
+    expect(result.current.searchResults).toEqual([])
+
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300)
       await Promise.resolve()
       await Promise.resolve()
     })
 
-    expect(global.fetch).toHaveBeenCalledTimes(2)
-    expect(result.current.searchMode).toBe('llm')
-    expect(result.current.searchResults).toEqual([{ id: 20 }])
+    expect(global.fetch).toHaveBeenCalledTimes(3)
+    expect(result.current.searchMode).toBe('fuzzy')
+    expect(result.current.searchResults).toEqual([{ id: 30 }])
+  })
+
+  it('ignores late AI responses after the query changes', async () => {
+    vi.useFakeTimers()
+    const aiSearch = deferred()
+
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 1 }] }))
+      .mockImplementationOnce(() => aiSearch.promise)
+      .mockResolvedValueOnce(makeResponse({ items: [{ id: 2 }] }))
+
+    const { result } = renderHook(() => useSearch({ refreshToken: 0 }))
+
+    act(() => { result.current.setSearchQuery('cats') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    let aiPromise
+    await act(async () => {
+      aiPromise = result.current.runAiSearch()
+      await Promise.resolve()
+    })
+
+    act(() => { result.current.setSearchQuery('dogs') })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    aiSearch.resolve(makeResponse({ items: [{ id: 99 }] }))
+    await act(async () => {
+      await aiPromise
+      await Promise.resolve()
+    })
+
+    expect(result.current.searchMode).toBe('fuzzy')
+    expect(result.current.searchResults).toEqual([{ id: 2 }])
   })
 })
 
@@ -482,7 +534,7 @@ describe('usePendingPolling', () => {
     expect(result.current.pollingActive).toBe(false)
   })
 
-  it('stops polling when the poll fetch throws', async () => {
+  it('keeps polling active when the poll fetch throws with pending items known', async () => {
     vi.useFakeTimers()
 
     global.fetch
@@ -507,10 +559,10 @@ describe('usePendingPolling', () => {
       await Promise.resolve()
     })
 
-    expect(result.current.pollingActive).toBe(false)
+    expect(result.current.pollingActive).toBe(true)
   })
 
-  it('stops polling when the poll response is not ok', async () => {
+  it('keeps polling active when the poll response is not ok with pending items known', async () => {
     vi.useFakeTimers()
 
     global.fetch
@@ -535,7 +587,7 @@ describe('usePendingPolling', () => {
       await Promise.resolve()
     })
 
-    expect(result.current.pollingActive).toBe(false)
+    expect(result.current.pollingActive).toBe(true)
   })
 
   it('stable onPendingChanged identity does not restart the polling interval', async () => {

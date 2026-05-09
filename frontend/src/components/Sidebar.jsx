@@ -1,3 +1,9 @@
+/**
+ * Render search, upload, and library status controls.
+ *
+ * @param {object} props - Sidebar state and event handlers.
+ * @returns {JSX.Element} Sidebar controls.
+ */
 export default function Sidebar({
   searchQuery,
   onSearchQueryChange,
@@ -98,7 +104,7 @@ export default function Sidebar({
           <p className="statValue">{total}</p>
         </div>
         <div>
-          <p className="statLabel">Pending analysis</p>
+          <p className="statLabel">Pending/startup analysis</p>
           <p className="statValue">{pendingCount}</p>
         </div>
         <div>

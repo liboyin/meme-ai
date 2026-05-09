@@ -1,3 +1,9 @@
+/**
+ * Render the meme gallery or search results grid.
+ *
+ * @param {object} props - Grid state, sorting, paging, and selection handlers.
+ * @returns {JSX.Element} Meme grid content.
+ */
 export default function MemeGrid({
   hasSearchQuery,
   searchResults,
@@ -49,7 +55,7 @@ export default function MemeGrid({
           {pendingCount > 0 && (
             <div className="pendingBanner">
               <span className="pulse" />
-              {pendingCount} meme{pendingCount === 1 ? '' : 's'} still being analysed
+              {pendingCount} meme{pendingCount === 1 ? '' : 's'} being analysed, including startup recovery
             </div>
           )}
         </div>

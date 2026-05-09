@@ -110,7 +110,7 @@ describe('MemeGrid', () => {
     })
     expect(onSortChange).toHaveBeenCalledWith('filename_asc')
 
-    expect(screen.getByText(/still being analysed/)).toBeTruthy()
+    expect(screen.getByText(/being analysed/)).toBeTruthy()
   })
 
   it('renders search empty state', () => {
