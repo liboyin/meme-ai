@@ -17,7 +17,7 @@ from PIL import Image, UnidentifiedImageError
 from .config import settings
 from .database import SessionLocal
 from .init_db import init_db
-from .llm import LLMUnavailableError, analyze_image, llm_rank
+from .llm import LLMUnavailableError, analyze_image, close_client, llm_rank
 from .repository import DuplicateMemeError, MemeRepository, SortBy, SortOrder
 from .schemas import (
     DeleteOut,
@@ -125,49 +125,49 @@ async def analyze_and_store(meme_id: int) -> None:
     """Run LLM analysis on a meme and persist the results.
 
     Skips analysis if the meme no longer exists or is no longer pending.
+    If the meme is deleted mid-flight, the repository calls are no-ops.
 
     Args:
         meme_id: ID of the meme to analyse.
     """
     db = SessionLocal()
     repo = MemeRepository(db)
-    meme = repo.get_full(meme_id)
-    if not meme:
-        db.close()
-        return
-    if meme.analysis_status != "pending":
-        db.close()
-        return
-
-    def still_pending() -> bool:
-        current = repo.get_full(meme_id)
-        return current is not None and current.analysis_status == "pending"
-
-    if not settings.openai_api_key:
-        if still_pending():
-            repo.set_error(meme_id, "LLM features are unavailable because OPENAI_API_KEY is not configured.")
-        db.close()
-        return
     try:
-        payload = await analyze_image(meme.image_data, meme.mime_type)
-        if still_pending():
+        meme = repo.get_full(meme_id)
+        if not meme or meme.analysis_status != "pending":
+            return
+        if not settings.openai_api_key:
+            repo.set_error(meme_id, "LLM features are unavailable because OPENAI_API_KEY is not configured.")
+            return
+        try:
+            payload = await analyze_image(meme.image_data, meme.mime_type)
             repo.update_analysis(meme_id, payload, "done")
-    except Exception as exc:
-        logger.exception("Meme analysis failed for meme_id=%s", meme_id)
-        if still_pending():
+        except Exception as exc:
+            logger.exception("Meme analysis failed for meme_id=%s", meme_id)
             repo.set_error(meme_id, str(exc))
     finally:
         db.close()
 
 
 async def resume_pending_analysis() -> None:
-    """Initialise the database and spawn analysis tasks for any pending memes."""
+    """Initialise the database and resume analysis for any pending memes.
+
+    Uses ``asyncio.gather`` so that exceptions from individual tasks are
+    captured and logged rather than silently swallowed.
+    """
     init_db()
     db = SessionLocal()
     repo = MemeRepository(db)
-    for meme_id in repo.pending_ids():
-        asyncio.create_task(analyze_and_store(meme_id))
+    pending = repo.pending_ids()
     db.close()
+    if pending:
+        results = await asyncio.gather(
+            *[analyze_and_store(meme_id) for meme_id in pending],
+            return_exceptions=True,
+        )
+        for meme_id, result in zip(pending, results):
+            if isinstance(result, BaseException):
+                logger.error("Startup analysis failed for meme_id=%s: %s", meme_id, result)
 
 
 @asynccontextmanager
@@ -175,6 +175,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler that resumes pending meme analyses on startup."""
     await resume_pending_analysis()
     yield
+    await close_client()
 
 
 app = FastAPI(title="Meme Organiser", lifespan=lifespan)
