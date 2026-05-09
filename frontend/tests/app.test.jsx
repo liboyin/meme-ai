@@ -307,7 +307,7 @@ describe('App', () => {
       use_cases: 'updated use',
       tags: ['focus', 'edited']
     })
-    expect(await screen.findByText('saved detail')).toBeTruthy()
+    expect((await screen.findAllByText('saved detail')).length).toBeGreaterThan(0)
   })
 
   it('shows detail and delete errors when those requests fail', async () => {

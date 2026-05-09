@@ -15,7 +15,6 @@ export default function App() {
     total,
     totalPages,
     collectionError,
-    refreshToken,
     refreshCollection,
     sortOption,
     sortLabel,
@@ -109,7 +108,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [detailId, refreshToken])
+  }, [detailId])
 
   function openDetail(meme) {
     setDetailId(meme.id)
