@@ -167,7 +167,7 @@ def test_repository_edge_cases(load_test_modules, image_bytes):
 
     assert repo._build_fts_query("wow wow test") == "wow* OR test*"
     assert repo.search_fts("!!!") == []
-    assert repo.search_fts("done") == []
+    assert repo.search_fts("done")[0]["id"] == created.id
     assert repo.delete(99999) is False
 
     repo.update_analysis(99999, {"description": "ignored"}, "done")
@@ -294,8 +294,8 @@ def test_repository_list_memes_supports_requested_sort(load_test_modules, image_
     db.close()
 
 
-def test_init_db_adds_phash_column_and_sort_indexes(load_test_modules):
-    """init_db creates the phash column and all expected sort indexes."""
+def test_init_db_adds_phash_column_and_indexes(load_test_modules):
+    """init_db creates the phash column and all expected indexes."""
     modules = load_test_modules()
     modules.init_db.init_db()
 
@@ -305,10 +305,67 @@ def test_init_db_adds_phash_column_and_sort_indexes(load_test_modules):
 
     assert "phash" in columns
     assert columns["phash"]["notnull"] == 1
+    assert "idx_memes_sha256_unique" in indexes
     assert "idx_memes_uploaded_at_sort" in indexes
     assert "idx_memes_filename_sort" in indexes
     assert "idx_memes_phash_sort" in indexes
     db.close()
+
+
+def test_init_db_rejects_legacy_duplicate_sha256_rows(load_test_modules):
+    """init_db reports duplicate sha256 rows before enforcing the unique index."""
+    modules = load_test_modules()
+
+    db = modules.database.SessionLocal()
+    db.execute(
+        """
+        CREATE TABLE memes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            phash TEXT NOT NULL,
+            image_data BLOB NOT NULL,
+            uploaded_at TEXT NOT NULL,
+            description TEXT,
+            why_funny TEXT,
+            "references" TEXT,
+            use_cases TEXT,
+            tags TEXT,
+            analysis_status TEXT NOT NULL DEFAULT 'pending',
+            analysis_error TEXT
+        )
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO memes (
+            filename, mime_type, sha256, phash, image_data, uploaded_at, analysis_status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "one.png",
+            "image/png",
+            "same-hash",
+            "abc",
+            b"one",
+            "2026-01-01T00:00:00+00:00",
+            "pending",
+            "two.png",
+            "image/png",
+            "same-hash",
+            "def",
+            b"two",
+            "2026-01-02T00:00:00+00:00",
+            "pending",
+        ),
+    )
+    db.commit()
+    db.close()
+
+    with pytest.raises(RuntimeError, match=r"same-hash \(2\)"):
+        modules.init_db.init_db()
 
 
 @pytest.mark.anyio
