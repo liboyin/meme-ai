@@ -63,8 +63,8 @@ Assume for v1:
 * uploaded memes are typically under 1 MB.
 * uploaded memes are static images only (PNG, JPEG, WEBP).
 * GIF, animated WEBP, HEIC, AVIF, SVG, and video must be rejected with a `415` error.
-* duplicate uploads are allowed in v1.
-* store a `sha256` hash for each image to support future deduplication.
+* exact duplicate image bytes are rejected by `sha256`.
+* visually similar memes are allowed in v1.
 
 ---
 
@@ -79,7 +79,7 @@ Use a single SQLite file named `memes.db`. Enable WAL mode and a sensible busy t
 | id | INTEGER PK | autoincrement |
 | filename | TEXT | original upload filename |
 | mime_type | TEXT | e.g. `image/png` |
-| sha256 | TEXT | lowercase hex digest of original bytes |
+| sha256 | TEXT | unique lowercase hex digest of original bytes |
 | image_data | BLOB | raw file bytes |
 | uploaded_at | DATETIME | UTC ISO 8601 timestamp |
 | description | TEXT | LLM free-text description |
@@ -108,6 +108,7 @@ Accept `multipart/form-data` with one or more image files.
 * Validate MIME type and verify that each file is a decodable static image using Pillow synchronously (blocking is OK here).
 * Reject files larger than 1.5 MB each with `413`.
 * Allow up to 50 files per request. Partial success is allowed for multi-file upload.
+* Reject a single duplicate upload with `409`; report duplicate files as item-level errors in multi-file uploads.
 * Store each valid file in SQLite with `analysis_status = pending`.
 * Return created meme IDs immediately.
 * Kick off analysis asynchronously using FastAPI `BackgroundTasks`.

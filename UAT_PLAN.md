@@ -253,11 +253,17 @@ contains only a partial match.
 the second click) OR the second click is coalesced — either is acceptable, but
 the UI must not enter an inconsistent state.
 
+#### AI-04 — Query changes clear stale AI results
+**Steps:** Run AI search, then edit the search input before or after the AI
+response returns.
+**Assert:** Old AI results disappear, fuzzy search runs for the new query, and
+late AI responses for the previous query do not overwrite the new results.
+
 ### 4.6 Async Analysis & Pending Polling (AN)
 
 #### AN-01 — Pending count updates live (Lane A)
 **Pre:** Upload 3 memes.
-**Steps:** Observe sidebar "Pending analysis" value over the next minute.
+**Steps:** Observe sidebar "Pending/startup analysis" value over the next minute.
 **Assert:**
 - `GET /api/memes/pending` fires every ≈3 s (tolerance ±1 s).
 - Value monotonically decreases from 3 to 0.
@@ -265,8 +271,8 @@ the UI must not enter an inconsistent state.
 - Each card's badge transitions `pending → done` without page reload.
 
 #### AN-02 — Pulse banner visible while pending > 0
-**Assert:** Banner reading "N meme(s) still being analysed" is visible during
-polling; disappears when count hits 0. Screenshot recommended.
+**Assert:** Banner reading "N meme(s) being analysed, including startup recovery"
+is visible during polling; disappears when count hits 0. Screenshot recommended.
 
 #### AN-03 — Resume on restart (Lane A, advanced)
 **Pre:** Upload 5 memes, immediately stop backend while several are still pending.

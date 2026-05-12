@@ -2,9 +2,32 @@
 
 Meme Organiser is a local-first meme library built with FastAPI, React, Vite, and SQLite. Images are stored directly in SQLite as BLOBs, fuzzy search runs fully offline, and AI search only needs network access for the configured OpenAI-compatible multimodal provider.
 
+## Architecture
+
+- `backend/` contains the FastAPI app, SQLite repository, database initialisation, image validation, perceptual hashing, and OpenAI-compatible LLM calls.
+- `frontend/` contains the React/Vite app for upload, browsing, sorting, metadata editing, fuzzy search, and AI-assisted search.
+- Runtime configuration comes from environment variables or `.env`; `DB_PATH` selects the SQLite database path and the `OPENAI_*` variables configure the multimodal provider.
+- The Vite dev server proxies `/api/...` to FastAPI, so the frontend can use the same API paths in development that it expects in production-style routing.
+
+## Dataflow
+
+1. The user uploads up to 50 PNG, JPEG, or WEBP files through the frontend.
+2. FastAPI validates file size, detected image type, and animation status, then stores accepted image bytes in SQLite with `sha256`, perceptual hash, upload time, and pending analysis status.
+3. Background analysis asks the configured multimodal LLM for searchable metadata, then stores the description, references, use cases, and tags. If the LLM is unavailable or fails, the meme remains usable with an error status.
+4. SQLite FTS5 indexes completed searchable fields. Fuzzy search queries FTS5 directly; AI search first gathers a fuzzy shortlist and then asks the LLM to re-rank candidates.
+5. The frontend polls pending analysis state so newly uploaded or startup-resumed memes appear as their metadata becomes available.
+
+## Design Decisions
+
+- Images live in SQLite BLOBs to keep the app local-first and avoid coordinating a separate object store.
+- Exact duplicate uploads are rejected by `sha256`; perceptual hashes are stored for comparison and sorting, but visually similar memes are allowed.
+- Analysis resumes on backend startup before the API is ready so interrupted uploads do not remain pending forever.
+- Manual metadata edits mark a meme as analysed and take precedence over late background analysis results.
+- `uv` intentionally has no default dependency groups, keeping production installs minimal unless `--group dev` is requested.
+
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.13+
 - Node.js 18+
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
 
@@ -89,5 +112,4 @@ AI search first gathers a fuzzy shortlist, then asks the configured multimodal L
 ## Notes
 
 - If `OPENAI_API_KEY` is missing, the backend still starts, uploads still work, and LLM-dependent features return a `503` response with the required `llm_unavailable` body.
-- Pending meme analysis is resumed on backend startup.
-- Two sample memes are included under `assets/` for quick manual testing.
+- Image fixtures under `assets/` cover valid uploads and validation failures for quick manual testing.
