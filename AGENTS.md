@@ -9,8 +9,14 @@ This file is intended for AI agents.
 # Implementation Guidelines
 
 - Prefer the simplest implementation, even if it violates SOLID principles.
-- For multi-step plans or multiple isolated changes, use subagents.
-- Break changes into small, functionally isolated chunks. Commit as you go.
+- For multi-step plans or multiple isolated changes, implement in subagents.
+- Break changes into small, functionally isolated chunks. Commit as you go. Commit messages must follow the following template:
+
+```
+<Your name: Claude/Codex/Gemini/...>: <one-line summary>
+
+<One paragraph description of the change in detail>
+```
 
 # Unit Tests + Static Analysis
 
