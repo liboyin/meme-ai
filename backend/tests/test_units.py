@@ -567,6 +567,29 @@ async def test_worker_process_next_pending_claims_and_analyzes(load_test_modules
     db.close()
 
 
+@pytest.mark.anyio
+async def test_run_worker_stops_when_stop_event_is_set(load_test_modules):
+    """run_worker exits its idle poll promptly when stop_event is set."""
+    modules = load_test_modules()
+    modules.init_db.init_db()
+
+    stop_event = asyncio.Event()
+
+    async def _set_after_delay() -> None:
+        await asyncio.sleep(0.05)
+        stop_event.set()
+
+    setter = asyncio.create_task(_set_after_delay())
+    await modules.worker.run_worker(
+        worker_id="stop-worker",
+        poll_interval_seconds=5.0,
+        stale_lock_seconds=900,
+        stop_event=stop_event,
+    )
+    await setter
+    assert stop_event.is_set()
+
+
 def test_update_search_fields_marks_errored_meme_as_done(load_test_modules):
     """Editing metadata on an errored meme sets analysis_status to done and clears the error.
 

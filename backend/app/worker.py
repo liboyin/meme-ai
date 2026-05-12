@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import signal
 import socket
 import uuid
 from collections.abc import Sequence
@@ -60,6 +61,7 @@ async def run_worker(
     poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
     stale_lock_seconds: int = DEFAULT_STALE_LOCK_SECONDS,
     once: bool = False,
+    stop_event: asyncio.Event | None = None,
 ) -> None:
     """Run the meme analysis worker loop.
 
@@ -68,19 +70,31 @@ async def run_worker(
         poll_interval_seconds: Seconds to wait between empty queue polls.
         stale_lock_seconds: Age after which locked pending work can be reclaimed.
         once: If True, process at most one pending meme and exit.
+        stop_event: Optional event that, when set, ends the loop after the current
+            iteration. Used for graceful shutdown on SIGTERM.
     """
     init_db()
     active_worker_id = worker_id or build_worker_id()
     try:
         while True:
+            if stop_event is not None and stop_event.is_set():
+                break
             processed = await process_next_pending(
                 worker_id=active_worker_id,
                 stale_lock_seconds=stale_lock_seconds,
             )
             if once:
                 return
-            if not processed:
+            if processed:
+                continue
+            if stop_event is None:
                 await asyncio.sleep(poll_interval_seconds)
+            else:
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=poll_interval_seconds)
+                    break
+                except asyncio.TimeoutError:
+                    pass
     finally:
         await close_client()
 
@@ -112,6 +126,29 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+async def _run_with_signals(args: argparse.Namespace) -> None:
+    """Run the worker with a SIGTERM handler that requests graceful shutdown."""
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _on_sigterm() -> None:
+        logger.info("SIGTERM received; finishing current work and stopping.")
+        stop_event.set()
+
+    try:
+        loop.add_signal_handler(signal.SIGTERM, _on_sigterm)
+    except NotImplementedError:
+        pass
+
+    await run_worker(
+        worker_id=args.worker_id,
+        poll_interval_seconds=args.poll_interval,
+        stale_lock_seconds=args.stale_lock_seconds,
+        once=args.once,
+        stop_event=stop_event,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Run the worker CLI entrypoint.
 
@@ -121,14 +158,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO)
     try:
-        asyncio.run(
-            run_worker(
-                worker_id=args.worker_id,
-                poll_interval_seconds=args.poll_interval,
-                stale_lock_seconds=args.stale_lock_seconds,
-                once=args.once,
-            )
-        )
+        asyncio.run(_run_with_signals(args))
     except KeyboardInterrupt:
         logger.info("Meme analysis worker stopped.")
 
