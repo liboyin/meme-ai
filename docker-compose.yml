@@ -12,6 +12,20 @@ services:
     ports:
       - "8000:8000"
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: ["python", "-m", "backend.app.worker"]
+    env_file:
+      - .env
+    environment:
+      - DB_PATH=/data/memes.db
+    volumes:
+      - meme_data:/data
+    depends_on:
+      - backend
+
   frontend:
     build:
       context: .
