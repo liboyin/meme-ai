@@ -32,7 +32,7 @@ from .schemas import (
 )
 
 
-MAX_FILE_BYTES = 1_500_000
+MAX_FILE_BYTES = 2_000_000
 ALLOWED_MIME = {
     "PNG": "image/png",
     "JPEG": "image/jpeg",
@@ -131,9 +131,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 @app.post("/api/memes/upload", response_model=UploadOut)
 async def upload_memes(files: list[UploadFile] = File(...), db: Connection = Depends(get_db)) -> UploadOut:
-    """Upload up to 50 meme images, validate them, and enqueue LLM analysis."""
-    if len(files) > 50:
-        raise HTTPException(status_code=413, detail="Maximum 50 files per request")
+    """Upload up to 100 meme images, validate them, and enqueue LLM analysis."""
+    if len(files) > 100:
+        raise HTTPException(status_code=413, detail="Maximum 100 files per request")
 
     repo = MemeRepository(db)
     items = []
