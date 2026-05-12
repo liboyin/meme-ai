@@ -1,6 +1,4 @@
-import asyncio
 import hashlib
-import logging
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -9,7 +7,7 @@ from sqlite3 import Connection
 from typing import Annotated
 
 import imagehash
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from PIL import Image, UnidentifiedImageError
@@ -17,7 +15,7 @@ from PIL import Image, UnidentifiedImageError
 from .config import settings
 from .database import SessionLocal
 from .init_db import init_db
-from .llm import LLMUnavailableError, analyze_image, close_client, llm_rank
+from .llm import LLMUnavailableError, LLM_UNAVAILABLE_MESSAGE, close_client, llm_rank
 from .repository import DuplicateMemeError, MemeRepository, SortBy, SortOrder
 from .schemas import (
     DeleteOut,
@@ -33,8 +31,6 @@ from .schemas import (
     UploadOut,
 )
 
-
-logger = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 1_500_000
 ALLOWED_MIME = {
@@ -60,7 +56,7 @@ def llm_unavailable_response() -> JSONResponse:
         content={
             "error": {
                 "code": "llm_unavailable",
-                "message": "LLM features are unavailable because OPENAI_API_KEY is not configured.",
+                "message": LLM_UNAVAILABLE_MESSAGE,
             }
         },
     )
@@ -121,59 +117,10 @@ def compute_image_phash(data: bytes) -> str:
         return str(imagehash.phash(image))
 
 
-async def analyze_and_store(meme_id: int) -> None:
-    """Run LLM analysis on a meme and persist the results.
-
-    Skips analysis if the meme no longer exists or is no longer pending.
-    If the meme is deleted mid-flight, the repository calls are no-ops.
-
-    Args:
-        meme_id: ID of the meme to analyse.
-    """
-    db = SessionLocal()
-    repo = MemeRepository(db)
-    try:
-        meme = repo.get_full(meme_id)
-        if not meme or meme.analysis_status != "pending":
-            return
-        if not settings.openai_api_key:
-            repo.set_error(meme_id, "LLM features are unavailable because OPENAI_API_KEY is not configured.")
-            return
-        try:
-            payload = await analyze_image(meme.image_data, meme.mime_type)
-            repo.update_analysis(meme_id, payload, "done")
-        except Exception as exc:
-            logger.exception("Meme analysis failed for meme_id=%s", meme_id)
-            repo.set_error(meme_id, str(exc))
-    finally:
-        db.close()
-
-
-async def resume_pending_analysis() -> None:
-    """Initialise the database and resume analysis for any pending memes.
-
-    Uses ``asyncio.gather`` so that exceptions from individual tasks are
-    captured and logged rather than silently swallowed.
-    """
-    init_db()
-    db = SessionLocal()
-    repo = MemeRepository(db)
-    pending = repo.pending_ids()
-    db.close()
-    if pending:
-        results = await asyncio.gather(
-            *[analyze_and_store(meme_id) for meme_id in pending],
-            return_exceptions=True,
-        )
-        for meme_id, result in zip(pending, results):
-            if isinstance(result, BaseException):
-                logger.error("Startup analysis failed for meme_id=%s: %s", meme_id, result)
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan handler that resumes pending meme analyses on startup."""
-    await resume_pending_analysis()
+    """Application lifespan handler that initialises the database."""
+    init_db()
     yield
     await close_client()
 
@@ -183,8 +130,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 
 @app.post("/api/memes/upload", response_model=UploadOut)
-async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile] = File(...), db: Connection = Depends(get_db)) -> UploadOut:
-    """Upload up to 50 meme images, validate them, and queue background LLM analysis."""
+async def upload_memes(files: list[UploadFile] = File(...), db: Connection = Depends(get_db)) -> UploadOut:
+    """Upload up to 50 meme images, validate them, and enqueue LLM analysis."""
     if len(files) > 50:
         raise HTTPException(status_code=413, detail="Maximum 50 files per request")
 
@@ -208,7 +155,6 @@ async def upload_memes(background_tasks: BackgroundTasks, files: list[UploadFile
                 uploaded_at=datetime.now(timezone.utc).isoformat(),
                 analysis_status="pending",
             )
-            background_tasks.add_task(analyze_and_store, meme.id)
             items.append({"filename": file.filename, "status": "created", "id": meme.id})
         except DuplicateMemeError as exc:
             if single_file_request:

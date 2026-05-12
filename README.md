@@ -4,7 +4,7 @@ Meme Organiser is a local-first meme library built with FastAPI, React, Vite, an
 
 ## Architecture
 
-- `backend/` contains the FastAPI app, SQLite repository, database initialisation, image validation, perceptual hashing, and OpenAI-compatible LLM calls.
+- `backend/` contains the FastAPI app, SQLite repository, database initialisation, image validation, perceptual hashing, the OpenAI-compatible LLM client, and a standalone analysis worker.
 - `frontend/` contains the React/Vite app for upload, browsing, sorting, metadata editing, fuzzy search, and AI-assisted search.
 - Runtime configuration comes from environment variables or `.env`; `DB_PATH` selects the SQLite database path and the `OPENAI_*` variables configure the multimodal provider.
 - The Vite dev server proxies `/api/...` to FastAPI, so the frontend can use the same API paths in development that it expects in production-style routing.
@@ -13,16 +13,16 @@ Meme Organiser is a local-first meme library built with FastAPI, React, Vite, an
 
 1. The user uploads up to 50 PNG, JPEG, or WEBP files through the frontend.
 2. FastAPI validates file size, detected image type, and animation status, then stores accepted image bytes in SQLite with `sha256`, perceptual hash, upload time, and pending analysis status.
-3. Background analysis asks the configured multimodal LLM for searchable metadata, then stores the description, references, use cases, and tags. If the LLM is unavailable or fails, the meme remains usable with an error status.
+3. A separate worker process claims pending rows from SQLite, asks the configured multimodal LLM for searchable metadata, then stores the description, references, use cases, and tags. If the LLM is unavailable or fails, the meme remains usable with an error status.
 4. SQLite FTS5 indexes completed searchable fields. Fuzzy search queries FTS5 directly; AI search first gathers a fuzzy shortlist and then asks the LLM to re-rank candidates.
-5. The frontend polls pending analysis state so newly uploaded or startup-resumed memes appear as their metadata becomes available.
+5. The frontend polls pending analysis state so newly uploaded or recovered memes appear as their metadata becomes available.
 
 ## Design Decisions
 
 - Images live in SQLite BLOBs to keep the app local-first and avoid coordinating a separate object store.
 - Exact duplicate uploads are rejected by `sha256`; perceptual hashes are stored for comparison and sorting, but visually similar memes are allowed.
-- Analysis resumes on backend startup before the API is ready so interrupted uploads do not remain pending forever.
-- Manual metadata edits mark a meme as analysed and take precedence over late background analysis results.
+- Pending rows in SQLite are the durable analysis queue. The API process stays responsive while a separate worker handles LLM calls, and abandoned worker locks can be reclaimed.
+- Manual metadata edits mark a meme as analysed and take precedence over late worker analysis results.
 - `uv` intentionally has no default dependency groups, keeping production installs minimal unless `--group dev` is requested.
 
 ## Prerequisites
@@ -67,7 +67,13 @@ Start the FastAPI server from the repo root:
 uv run uvicorn backend.main:app --reload
 ```
 
-In a second terminal, start the Vite frontend:
+In a second terminal, start the analysis worker:
+
+```bash
+uv run python -m backend.app.worker
+```
+
+In a third terminal, start the Vite frontend:
 
 ```bash
 cd frontend

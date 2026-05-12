@@ -104,7 +104,7 @@ export default function Sidebar({
           <p className="statValue">{total}</p>
         </div>
         <div>
-          <p className="statLabel">Pending/startup analysis</p>
+          <p className="statLabel">Pending analysis</p>
           <p className="statValue">{pendingCount}</p>
         </div>
         <div>

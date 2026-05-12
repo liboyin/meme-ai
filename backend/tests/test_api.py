@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import time
 from datetime import datetime, timezone
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 
 
 def wait_for_status(client, meme_id, expected_status, timeout=1.5):
+    """Wait until a meme detail response reaches the expected analysis status."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         response = client.get(f"/api/memes/{meme_id}")
@@ -15,6 +17,17 @@ def wait_for_status(client, meme_id, expected_status, timeout=1.5):
                 return data
         time.sleep(0.05)
     raise AssertionError(f"Meme {meme_id} never reached status {expected_status!r}")
+
+
+def run_worker_once(modules, *, worker_id="test-worker"):
+    """Process at most one queued meme with the standalone worker."""
+    asyncio.run(
+        modules.worker.run_worker(
+            once=True,
+            worker_id=worker_id,
+            poll_interval_seconds=0,
+        )
+    )
 
 
 def test_full_backend_flow_with_mocked_llm(load_test_modules, image_bytes):
@@ -31,6 +44,7 @@ def test_full_backend_flow_with_mocked_llm(load_test_modules, image_bytes):
         created_item = upload.json()["items"][0]
         meme_id = created_item["id"]
 
+        run_worker_once(modules)
         detail = wait_for_status(client, meme_id, "done")
         assert detail["description"] == "Distracted partner eye-roll meme."
         assert detail["tags"] == ["dramatic", "reaction", "annoyed"]
@@ -277,6 +291,7 @@ def test_missing_api_key_marks_uploads_error_and_blocks_llm_search(load_test_mod
         assert upload.status_code == 200
         meme_id = upload.json()["items"][0]["id"]
 
+        run_worker_once(modules)
         detail = wait_for_status(client, meme_id, "error")
         assert detail["analysis_error"] == (
             "LLM features are unavailable because OPENAI_API_KEY is not configured."
@@ -309,6 +324,7 @@ def test_manual_metadata_update_reindexes_fts(load_test_modules, image_bytes):
         assert upload.status_code == 200
         meme_id = upload.json()["items"][0]["id"]
 
+        run_worker_once(modules)
         detail = wait_for_status(client, meme_id, "error")
         assert detail["analysis_status"] == "error"
 
@@ -333,8 +349,8 @@ def test_manual_metadata_update_reindexes_fts(load_test_modules, image_bytes):
         assert fuzzy.json()["items"][0]["id"] == meme_id
 
 
-def test_startup_requeues_pending_memes(load_test_modules, image_bytes):
-    """Memes left in pending state before a restart are analysed when the app starts up."""
+def test_worker_processes_memes_left_pending_before_restart(load_test_modules, image_bytes):
+    """Memes left in pending state before a restart are analysed by the worker."""
     modules = load_test_modules(api_key="test-key")
     database = modules.database
     init_db = modules.init_db
@@ -357,6 +373,11 @@ def test_startup_requeues_pending_memes(load_test_modules, image_bytes):
     db.close()
 
     with TestClient(main.app) as client:
+        pending = client.get("/api/memes/pending")
+        assert pending.status_code == 200
+        assert pending.json()["items"] == [{"id": meme.id, "analysis_status": "pending"}]
+
+        run_worker_once(modules)
         detail = wait_for_status(client, meme.id, "done")
 
     assert detail["filename"] == "recovered.jpg"

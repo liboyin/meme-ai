@@ -19,6 +19,7 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 semaphore = asyncio.Semaphore(3)
+LLM_UNAVAILABLE_MESSAGE = "LLM features are unavailable because OPENAI_API_KEY is not configured."
 
 ANALYSIS_SCHEMA: dict[str, object] = {
     "type": "object",

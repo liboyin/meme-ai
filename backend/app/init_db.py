@@ -53,6 +53,20 @@ def _ensure_unique_sha256_index(db: sqlite3.Connection) -> None:
         ) from exc
 
 
+def _ensure_column(db: sqlite3.Connection, *, table_name: str, column_name: str, definition: str) -> None:
+    """Add a column to a table when an existing database does not have it.
+
+    Args:
+        db: Open SQLite connection.
+        table_name: Name of the table to inspect.
+        column_name: Name of the column that should exist.
+        definition: SQL column definition to use in ``ALTER TABLE``.
+    """
+    columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table_name})").fetchall()}
+    if column_name not in columns:
+        db.execute(f"ALTER TABLE {table_name} ADD COLUMN {definition}")
+
+
 def init_db() -> None:
     """Create the memes table, indexes, FTS virtual table, and triggers if they don't exist.
 
@@ -77,9 +91,30 @@ def init_db() -> None:
                 use_cases TEXT,
                 tags TEXT,
                 analysis_status TEXT NOT NULL DEFAULT 'pending',
-                analysis_error TEXT
+                analysis_error TEXT,
+                analysis_locked_at TEXT,
+                analysis_worker_id TEXT,
+                analysis_attempts INTEGER NOT NULL DEFAULT 0
                 )
                 """
+        )
+        _ensure_column(
+            db,
+            table_name="memes",
+            column_name="analysis_locked_at",
+            definition="analysis_locked_at TEXT",
+        )
+        _ensure_column(
+            db,
+            table_name="memes",
+            column_name="analysis_worker_id",
+            definition="analysis_worker_id TEXT",
+        )
+        _ensure_column(
+            db,
+            table_name="memes",
+            column_name="analysis_attempts",
+            definition="analysis_attempts INTEGER NOT NULL DEFAULT 0",
         )
         _ensure_unique_sha256_index(db)
         db.execute(
@@ -98,6 +133,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_memes_phash_sort
             ON memes (phash ASC, id ASC)
+            """
+        )
+        db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_memes_analysis_queue
+            ON memes (analysis_status, analysis_locked_at, id)
             """
         )
         db.execute(

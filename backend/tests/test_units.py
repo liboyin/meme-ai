@@ -235,6 +235,58 @@ def test_repository_rejects_duplicate_sha256(load_test_modules):
     db.close()
 
 
+def test_repository_claim_pending_analysis_locks_queue_rows(load_test_modules):
+    """claim_pending_analysis skips active locks and records worker ownership."""
+    modules = load_test_modules()
+    modules.init_db.init_db()
+
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+    first_bytes, first_phash = image_bytes_with_phash(modules)
+    second_bytes, second_phash = image_bytes_with_phash(modules, color=(0, 255, 0))
+    for filename, sha256, raw, phash in (
+        ("first.png", "first-hash", first_bytes, first_phash),
+        ("second.png", "second-hash", second_bytes, second_phash),
+    ):
+        repo.create_meme(
+            filename=filename,
+            mime_type="image/png",
+            sha256=sha256,
+            phash=phash,
+            image_data=raw,
+            uploaded_at=datetime.now(timezone.utc).isoformat(),
+            analysis_status="pending",
+        )
+
+    first_claim = repo.claim_pending_analysis(
+        worker_id="worker-a",
+        now="2026-01-02T00:00:00+00:00",
+        stale_before="2026-01-01T00:00:00+00:00",
+    )
+    second_claim = repo.claim_pending_analysis(
+        worker_id="worker-b",
+        now="2026-01-02T00:01:00+00:00",
+        stale_before="2026-01-01T00:00:00+00:00",
+    )
+    reclaimed = repo.claim_pending_analysis(
+        worker_id="worker-c",
+        now="2026-01-02T00:02:00+00:00",
+        stale_before="2026-01-03T00:00:00+00:00",
+    )
+
+    assert first_claim is not None
+    assert first_claim.filename == "first.png"
+    assert first_claim.analysis_worker_id == "worker-a"
+    assert first_claim.analysis_attempts == 1
+    assert second_claim is not None
+    assert second_claim.filename == "second.png"
+    assert reclaimed is not None
+    assert reclaimed.filename == "first.png"
+    assert reclaimed.analysis_worker_id == "worker-c"
+    assert reclaimed.analysis_attempts == 2
+    db.close()
+
+
 def test_repository_list_memes_supports_requested_sort(load_test_modules, image_bytes):
     """list_memes returns rows in the correct order for all supported sort fields and directions."""
     modules = load_test_modules()
@@ -294,8 +346,8 @@ def test_repository_list_memes_supports_requested_sort(load_test_modules, image_
     db.close()
 
 
-def test_init_db_adds_phash_column_and_indexes(load_test_modules):
-    """init_db creates the phash column and all expected indexes."""
+def test_init_db_adds_queue_columns_and_indexes(load_test_modules):
+    """init_db creates phash, queue columns, and all expected indexes."""
     modules = load_test_modules()
     modules.init_db.init_db()
 
@@ -305,10 +357,14 @@ def test_init_db_adds_phash_column_and_indexes(load_test_modules):
 
     assert "phash" in columns
     assert columns["phash"]["notnull"] == 1
+    assert "analysis_locked_at" in columns
+    assert "analysis_worker_id" in columns
+    assert "analysis_attempts" in columns
     assert "idx_memes_sha256_unique" in indexes
     assert "idx_memes_uploaded_at_sort" in indexes
     assert "idx_memes_filename_sort" in indexes
     assert "idx_memes_phash_sort" in indexes
+    assert "idx_memes_analysis_queue" in indexes
     db.close()
 
 
@@ -374,7 +430,7 @@ async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch
     modules = load_test_modules()
     modules.init_db.init_db()
 
-    await modules.main.analyze_and_store(99999)
+    await modules.analysis.analyze_and_store(99999)
 
     db = modules.database.SessionLocal()
     repo = modules.repository.MemeRepository(db)
@@ -393,8 +449,8 @@ async def test_analyze_and_store_handles_missing_and_failed_analysis(monkeypatch
     async def boom(*_args, **_kwargs):
         raise RuntimeError("analysis crashed")
 
-    monkeypatch.setattr(modules.main, "analyze_image", boom)
-    await modules.main.analyze_and_store(meme.id)
+    monkeypatch.setattr(modules.analysis, "analyze_image", boom)
+    await modules.analysis.analyze_and_store(meme.id)
 
     db = modules.database.SessionLocal()
     repo = modules.repository.MemeRepository(db)
@@ -438,9 +494,9 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
             "tags": ["ai", "generated"],
         }
 
-    monkeypatch.setattr(modules.main, "analyze_image", slow_analysis)
+    monkeypatch.setattr(modules.analysis, "analyze_image", slow_analysis)
 
-    task = asyncio.create_task(modules.main.analyze_and_store(meme.id))
+    task = asyncio.create_task(modules.analysis.analyze_and_store(meme.id))
     await analysis_started.wait()
 
     db = modules.database.SessionLocal()
@@ -474,10 +530,8 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
 
 
 @pytest.mark.anyio
-async def test_resume_pending_analysis_logs_task_failures(monkeypatch, load_test_modules, image_bytes, caplog):
-    """resume_pending_analysis logs errors from failed startup tasks without raising."""
-    import logging
-
+async def test_worker_process_next_pending_claims_and_analyzes(load_test_modules, image_bytes):
+    """process_next_pending claims a queued meme and stores completed analysis."""
     modules = load_test_modules()
     modules.init_db.init_db()
 
@@ -486,9 +540,9 @@ async def test_resume_pending_analysis_logs_task_failures(monkeypatch, load_test
     raw = image_bytes()
     phash = modules.main.compute_image_phash(raw)
     meme = repo.create_meme(
-        filename="startup-fail.png",
+        filename="worker-done.png",
         mime_type="image/png",
-        sha256="startup-fail-hash",
+        sha256="worker-done-hash",
         phash=phash,
         image_data=raw,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
@@ -496,15 +550,21 @@ async def test_resume_pending_analysis_logs_task_failures(monkeypatch, load_test
     )
     db.close()
 
-    async def always_raise(meme_id: int) -> None:
-        raise RuntimeError("startup crash")
+    processed = await modules.worker.process_next_pending(
+        worker_id="unit-worker",
+        stale_lock_seconds=900,
+    )
 
-    monkeypatch.setattr(modules.main, "analyze_and_store", always_raise)
-
-    with caplog.at_level(logging.ERROR):
-        await modules.main.resume_pending_analysis()
-
-    assert any(str(meme.id) in r.message for r in caplog.records)
+    db = modules.database.SessionLocal()
+    repo = modules.repository.MemeRepository(db)
+    stored = repo.get_full(meme.id)
+    assert processed is True
+    assert stored.analysis_status == "done"
+    assert stored.description == "Distracted partner eye-roll meme."
+    assert stored.analysis_locked_at is None
+    assert stored.analysis_worker_id is None
+    assert stored.analysis_attempts == 1
+    db.close()
 
 
 def test_update_search_fields_marks_errored_meme_as_done(load_test_modules):
@@ -513,7 +573,7 @@ def test_update_search_fields_marks_errored_meme_as_done(load_test_modules):
     This is intentional: a manual metadata edit means the user is taking ownership of the
     content, so the meme is treated as fully indexed regardless of its previous LLM state.
     The done status also prevents analyze_and_store from overwriting the user's data if a
-    background task is still in flight.
+    background worker is still in flight.
     """
     modules = load_test_modules()
     modules.init_db.init_db()

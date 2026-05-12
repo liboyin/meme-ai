@@ -19,3 +19,6 @@ class Meme:
     tags: str | None = None
     analysis_status: str = "pending"
     analysis_error: str | None = None
+    analysis_locked_at: str | None = None
+    analysis_worker_id: str | None = None
+    analysis_attempts: int = 0

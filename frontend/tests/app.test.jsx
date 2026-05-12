@@ -484,7 +484,7 @@ describe('App', () => {
     await flushMicrotasks()
     expect(screen.getByText('1 meme uploaded. Analysis is running in the background.')).toBeTruthy()
     expect(screen.getByText('bad.gif: Unsupported file type')).toBeTruthy()
-    expect(screen.getByText(/being analysed/)).toBeTruthy()
+    expect(screen.getByText(/worker analysis/)).toBeTruthy()
     expect(screen.getByLabelText('Upload progress').firstElementChild.style.width).toBe('100%')
 
     await advanceTimers(3000)
@@ -604,6 +604,6 @@ describe('App', () => {
     await flushMicrotasks()
 
     expect(global.fetch).toHaveBeenCalledWith('/api/memes/pending')
-    expect(screen.getByText(/being analysed/)).toBeTruthy()
+    expect(screen.getByText(/worker analysis/)).toBeTruthy()
   })
 })

@@ -55,7 +55,7 @@ export default function MemeGrid({
           {pendingCount > 0 && (
             <div className="pendingBanner">
               <span className="pulse" />
-              {pendingCount} meme{pendingCount === 1 ? '' : 's'} being analysed, including startup recovery
+              {pendingCount} meme{pendingCount === 1 ? '' : 's'} queued for worker analysis
             </div>
           )}
         </div>

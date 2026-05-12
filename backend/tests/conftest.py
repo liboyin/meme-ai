@@ -90,7 +90,8 @@ def load_test_modules(monkeypatch, tmp_path):
 
     Returns:
         A callable ``(*, api_key="test-key") -> SimpleNamespace`` with attributes
-        ``config``, ``database``, ``init_db``, ``llm``, ``main``, ``repository``.
+        ``analysis``, ``config``, ``database``, ``init_db``, ``llm``, ``main``,
+        ``repository``, ``worker``.
     """
 
     def _load(*, api_key="test-key"):
@@ -99,13 +100,15 @@ def load_test_modules(monkeypatch, tmp_path):
         monkeypatch.setenv("OPENAI_MODEL", "fake-model")
         monkeypatch.setenv("OPENAI_API_KEY", api_key)
 
-        from backend.app import config, database, init_db, llm, main, repository
+        from backend.app import analysis, config, database, init_db, llm, main, repository, worker
 
         reload(config)
         reload(database)
         reload(init_db)
         reload(repository)
         reload(llm)
+        reload(analysis)
+        reload(worker)
         reload(main)
 
         if api_key:
@@ -118,6 +121,8 @@ def load_test_modules(monkeypatch, tmp_path):
             llm=llm,
             main=main,
             repository=repository,
+            analysis=analysis,
+            worker=worker,
         )
 
     return _load

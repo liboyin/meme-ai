@@ -266,7 +266,68 @@ class MemeRepository:
         ).fetchall()
         return [{"id": row["id"], "analysis_status": row["analysis_status"]} for row in rows]
 
-    def update_analysis(self, meme_id: int, payload: dict, status: str, error: str | None = None) -> None:
+    def claim_pending_analysis(self, *, worker_id: str, now: str, stale_before: str) -> Meme | None:
+        """Lock and return the next pending meme for worker analysis.
+
+        The public ``analysis_status`` remains ``pending`` while a worker owns
+        the row. Lock fields are private queue metadata, so the frontend can
+        keep polling the existing status contract.
+
+        Args:
+            worker_id: Stable identifier for the worker process claiming work.
+            now: Current UTC timestamp to store as the lock time.
+            stale_before: Lock timestamps at or before this value may be reclaimed.
+
+        Returns:
+            The claimed meme including image bytes, or ``None`` when no work is available.
+        """
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute(
+                """
+                SELECT id
+                FROM memes
+                WHERE analysis_status = 'pending'
+                  AND (analysis_locked_at IS NULL OR analysis_locked_at <= ?)
+                ORDER BY id ASC
+                LIMIT 1
+                """,
+                (stale_before,),
+            ).fetchone()
+            if row is None:
+                self.db.commit()
+                return None
+
+            meme_id = int(row["id"])
+            self.db.execute(
+                """
+                UPDATE memes
+                SET analysis_locked_at = ?,
+                    analysis_worker_id = ?,
+                    analysis_attempts = analysis_attempts + 1
+                WHERE id = ? AND analysis_status = 'pending'
+                """,
+                (now, worker_id, meme_id),
+            )
+            locked = self.db.execute("SELECT * FROM memes WHERE id = ?", (meme_id,)).fetchone()
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+        if locked is None:
+            return None
+        return self._row_to_meme(locked)
+
+    def update_analysis(
+        self,
+        meme_id: int,
+        payload: dict,
+        status: str,
+        error: str | None = None,
+        *,
+        worker_id: str | None = None,
+    ) -> None:
         """Store LLM analysis results for a meme.
 
         Only applies the update when the meme still has ``analysis_status =
@@ -279,6 +340,7 @@ class MemeRepository:
             payload: Dict with description, why_funny, references, use_cases, tags.
             status: New analysis_status value (e.g. "done").
             error: Optional error message.
+            worker_id: Optional worker owner required to match before updating.
         """
         cursor = self.db.execute(
             """
@@ -289,8 +351,11 @@ class MemeRepository:
                 use_cases = ?,
                 tags = ?,
                 analysis_status = ?,
-                analysis_error = ?
+                analysis_error = ?,
+                analysis_locked_at = NULL,
+                analysis_worker_id = NULL
             WHERE id = ? AND analysis_status = 'pending'
+              AND (? IS NULL OR analysis_worker_id = ?)
             """,
             (
                 payload.get("description"),
@@ -301,6 +366,8 @@ class MemeRepository:
                 status,
                 error,
                 meme_id,
+                worker_id,
+                worker_id,
             ),
         )
         if cursor.rowcount:
@@ -323,7 +390,8 @@ class MemeRepository:
             """
             UPDATE memes
             SET description = ?, why_funny = ?, "references" = ?,
-                use_cases = ?, tags = ?, analysis_status = ?, analysis_error = NULL
+                use_cases = ?, tags = ?, analysis_status = ?, analysis_error = NULL,
+                analysis_locked_at = NULL, analysis_worker_id = NULL
             WHERE id = ?
             """,
             (
@@ -341,15 +409,25 @@ class MemeRepository:
         self.db.commit()
         return self.get_metadata(meme_id)
 
-    def set_error(self, meme_id: int, message: str) -> None:
-        """Mark a meme's analysis as errored with the given message (truncated to 200 chars)."""
+    def set_error(self, meme_id: int, message: str, *, worker_id: str | None = None) -> None:
+        """Mark a pending meme's analysis as errored with the given message.
+
+        Args:
+            meme_id: ID of the meme to mark as errored.
+            message: Error message to truncate and store.
+            worker_id: Optional worker owner required to match before updating.
+        """
         cursor = self.db.execute(
             """
             UPDATE memes
-            SET analysis_status = ?, analysis_error = ?
-            WHERE id = ?
+            SET analysis_status = ?,
+                analysis_error = ?,
+                analysis_locked_at = NULL,
+                analysis_worker_id = NULL
+            WHERE id = ? AND analysis_status = 'pending'
+              AND (? IS NULL OR analysis_worker_id = ?)
             """,
-            ("error", message[:200], meme_id),
+            ("error", message[:200], meme_id, worker_id, worker_id),
         )
         if cursor.rowcount:
             self.db.commit()
@@ -412,16 +490,3 @@ class MemeRepository:
             (fts_query, limit),
         ).fetchall()
         return [self._api_payload(dict(row), include_rank=True) for row in rows]
-
-    def pending_ids(self) -> list[int]:
-        """Return IDs of all memes with analysis_status 'pending', newest first."""
-        rows = self.db.execute(
-            """
-            SELECT id
-            FROM memes
-            WHERE analysis_status = ?
-            ORDER BY id DESC
-            """,
-            ("pending",),
-        ).fetchall()
-        return [int(row["id"]) for row in rows]
