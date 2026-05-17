@@ -1,22 +1,52 @@
+# Version control
 .git
-.gitignore
-.env
 .github
+.gitignore
+
+# Environment
+.env
+.env.example
+
+# Editor / IDE
 .devcontainer
 .vscode
+.claude
+
+# Python build / cache
 __pycache__
 .pytest_cache
 .ruff_cache
 .mypy_cache
-node_modules
-frontend/node_modules
-.venv
 .coverage
 .coverage.*
 htmlcov
+.venv
+
+# Frontend build / cache
+node_modules
+frontend/node_modules
 dist
 frontend/dist
 coverage
 frontend/coverage
 .vite
+
+# Tests (not needed in runtime images)
+backend/tests
+frontend/tests
+
+# Test assets (binary files, can be large)
+assets
+
+# Runtime database
 memes.db
+
+# Documentation
+*.md
+CLAUDE.md
+REQUIREMENTS.md
+UAT_PLAN.md
+UAT_SETUP.md
+
+# Scripts
+update_dependencies.sh
