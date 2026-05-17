@@ -8,6 +8,14 @@
   "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
   "remoteUser": "vscode",
   "forwardPorts": [8000, 5173],
+  "portsAttributes":{
+    "8000": {
+      "label": "FastAPI Development Server"
+    },
+    "5173": {
+      "label": "Vite Development Server"
+    }
+  },
   "mounts": [
       "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly=true",
       "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly=true"
