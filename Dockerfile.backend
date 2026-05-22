@@ -21,7 +21,8 @@ COPY --from=builder /app/.venv /app/.venv
 COPY backend /app/backend
 
 RUN addgroup --system app && adduser --system --ingroup app app \
-    && chown -R app:app /app
+    && chown -R app:app /app \
+    && mkdir -p /data && chown app:app /data
 
 USER app
 
