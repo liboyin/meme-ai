@@ -51,7 +51,6 @@ npm run lint
 ## Frontend
 
 - See `frontend/vite.config.js` for test configs.
-- Mock module dependencies with `vi.mock('module-path', ...)` at the top of the test file; reserve `vi.spyOn` for object methods.
 
 # Review Guidelines
 
