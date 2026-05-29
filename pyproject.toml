@@ -38,7 +38,10 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["backend"]
-addopts = "--cov=backend/app --cov-report=term-missing --cov-fail-under=85"
+addopts = "--cov=backend/app --cov-report=term-missing --cov-fail-under=80"
+
+[tool.coverage.run]
+branch = true
 
 [tool.uv]
 default-groups = []

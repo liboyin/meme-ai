@@ -96,7 +96,7 @@ uv run --group dev mypy
 uv run --group dev ruff check backend
 ```
 
-Backend coverage is enforced by `pytest` and fails below 85%.
+Backend coverage is enforced by `pytest` and fails below 80%.
 
 Frontend:
 
