@@ -4,7 +4,11 @@
     "dockerfile": "Dockerfile",
     "context": "."
   },
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
   "initializeCommand": "test -f \"${localWorkspaceFolder}/.env\" || cp \"${localWorkspaceFolder}/.env.example\" \"${localWorkspaceFolder}/.env\"",
+  "postCreateCommand": "chmod +x .devcontainer/postCreateCommand.sh && ./.devcontainer/postCreateCommand.sh",
   "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
   "remoteUser": "vscode",
   "forwardPorts": [8000, 5173],
@@ -17,10 +21,10 @@
     }
   },
   "mounts": [
-      "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly=true",
-      "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly=true"
+      "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly",
+      "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly",
+      "source=${localEnv:HOME}/.claude/plugins/installed_plugins.json,target=/home/vscode/.claude/plugins/installed_plugins.json,type=bind"
   ],
-  "postCreateCommand": "chmod +x .devcontainer/postCreateCommand.sh && ./.devcontainer/postCreateCommand.sh",
   "customizations": {
     "vscode": {
       "extensions": [
