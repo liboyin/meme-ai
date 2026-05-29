@@ -1,5 +1,6 @@
 import asyncio
 import json
+import signal
 from datetime import datetime, timezone
 from io import BytesIO
 from types import SimpleNamespace
@@ -529,6 +530,16 @@ async def test_manual_metadata_update_is_not_overwritten_by_late_analysis(monkey
     db.close()
 
 
+def test_worker_build_worker_id_returns_hostname_prefix(load_test_modules):
+    """build_worker_id includes the hostname and an 8-character hex suffix."""
+    import socket
+    modules = load_test_modules()
+    worker_id = modules.worker.build_worker_id()
+    hostname = socket.gethostname()
+    assert worker_id.startswith(f"{hostname}-")
+    assert len(worker_id) == len(hostname) + 9  # dash + 8 hex chars
+
+
 @pytest.mark.anyio
 async def test_worker_process_next_pending_claims_and_analyzes(load_test_modules, image_bytes):
     """process_next_pending claims a queued meme and stores completed analysis."""
@@ -588,6 +599,150 @@ async def test_run_worker_stops_when_stop_event_is_set(load_test_modules):
     )
     await setter
     assert stop_event.is_set()
+
+
+@pytest.mark.anyio
+async def test_run_worker_exits_immediately_when_stop_event_already_set(load_test_modules):
+    """run_worker breaks before processing when stop_event is set before the first loop iteration."""
+    modules = load_test_modules()
+    modules.init_db.init_db()
+
+    stop_event = asyncio.Event()
+    stop_event.set()
+
+    await modules.worker.run_worker(
+        worker_id="pre-stopped",
+        stale_lock_seconds=900,
+        stop_event=stop_event,
+    )
+
+
+@pytest.mark.anyio
+async def test_run_worker_returns_after_single_poll_when_once_flag_set(monkeypatch, load_test_modules):
+    """run_worker returns immediately after one process_next_pending call when once=True."""
+    modules = load_test_modules()
+    modules.init_db.init_db()
+
+    poll_count = {"value": 0}
+
+    async def fake_process(*, worker_id, stale_lock_seconds):
+        poll_count["value"] += 1
+        return False
+
+    monkeypatch.setattr(modules.worker, "process_next_pending", fake_process)
+
+    await modules.worker.run_worker(
+        worker_id="once-worker",
+        stale_lock_seconds=900,
+        once=True,
+    )
+
+    assert poll_count["value"] == 1
+
+
+def test_worker_parse_args_defaults_and_all_flags(load_test_modules):
+    """parse_args returns expected defaults and correctly maps every CLI flag."""
+    modules = load_test_modules()
+    worker = modules.worker
+
+    defaults = worker.parse_args([])
+    assert defaults.once is False
+    assert defaults.poll_interval == worker.DEFAULT_POLL_INTERVAL_SECONDS
+    assert defaults.stale_lock_seconds == worker.DEFAULT_STALE_LOCK_SECONDS
+    assert defaults.worker_id is None
+
+    all_flags = worker.parse_args([
+        "--once",
+        "--poll-interval", "5.0",
+        "--stale-lock-seconds", "60",
+        "--worker-id", "custom-worker",
+    ])
+    assert all_flags.once is True
+    assert all_flags.poll_interval == 5.0
+    assert all_flags.stale_lock_seconds == 60
+    assert all_flags.worker_id == "custom-worker"
+
+
+@pytest.mark.anyio
+async def test_worker_run_with_signals_passes_args_and_handles_sigterm(monkeypatch, load_test_modules):
+    """_run_with_signals delegates to run_worker with parsed args and invokes stop_event on SIGTERM."""
+    modules = load_test_modules()
+    worker = modules.worker
+
+    captured_kwargs: dict = {}
+    signal_handlers: dict = {}
+
+    async def fake_run_worker(**kwargs):
+        captured_kwargs.update(kwargs)
+
+    class FakeLoop:
+        def add_signal_handler(self, sig, handler):
+            signal_handlers[sig] = handler
+
+    monkeypatch.setattr(worker, "run_worker", fake_run_worker)
+    monkeypatch.setattr(
+        worker,
+        "asyncio",
+        SimpleNamespace(Event=asyncio.Event, get_running_loop=lambda: FakeLoop()),
+    )
+
+    args = worker.parse_args(["--once", "--worker-id", "sigterm-worker"])
+    await worker._run_with_signals(args)
+
+    assert captured_kwargs["worker_id"] == "sigterm-worker"
+    assert captured_kwargs["once"] is True
+    stop_event = captured_kwargs["stop_event"]
+    assert not stop_event.is_set()
+    signal_handlers[signal.SIGTERM]()
+    assert stop_event.is_set()
+
+
+@pytest.mark.anyio
+async def test_worker_run_with_signals_handles_no_signal_support(monkeypatch, load_test_modules):
+    """_run_with_signals does not raise when add_signal_handler raises NotImplementedError."""
+    modules = load_test_modules()
+    worker = modules.worker
+
+    async def fake_run_worker(**kwargs):
+        pass
+
+    class NoSignalLoop:
+        def add_signal_handler(self, sig, handler):
+            raise NotImplementedError
+
+    monkeypatch.setattr(worker, "run_worker", fake_run_worker)
+    monkeypatch.setattr(
+        worker,
+        "asyncio",
+        SimpleNamespace(Event=asyncio.Event, get_running_loop=lambda: NoSignalLoop()),
+    )
+
+    args = worker.parse_args([])
+    await worker._run_with_signals(args)
+
+
+def test_worker_main_invokes_run_with_signals_and_handles_keyboard_interrupt(monkeypatch, load_test_modules):
+    """main delegates to _run_with_signals via asyncio.run and catches KeyboardInterrupt."""
+    modules = load_test_modules()
+    worker = modules.worker
+
+    captured_args: list = []
+
+    async def fake_run_with_signals(args):
+        captured_args.append(args)
+
+    monkeypatch.setattr(worker, "_run_with_signals", fake_run_with_signals)
+
+    worker.main(["--once", "--worker-id", "main-test"])
+    assert len(captured_args) == 1
+    assert captured_args[0].once is True
+    assert captured_args[0].worker_id == "main-test"
+
+    async def raise_keyboard_interrupt(args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker, "_run_with_signals", raise_keyboard_interrupt)
+    worker.main([])  # Should not raise
 
 
 def test_update_search_fields_marks_errored_meme_as_done(load_test_modules):
