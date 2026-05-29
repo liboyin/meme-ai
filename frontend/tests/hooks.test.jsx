@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import axios from 'axios'
+import useDetailModal from '../src/hooks/useDetailModal'
 import useMemesCollection from '../src/hooks/useMemesCollection'
 import usePendingPolling from '../src/hooks/usePendingPolling'
 import useSearch from '../src/hooks/useSearch'
@@ -643,5 +644,253 @@ describe('useUpload', () => {
     expect(result.current.uploadErrors).toEqual(['Nested upload error.'])
     expect(result.current.uploadProgress).toBe(0)
     expect(onCreated).not.toHaveBeenCalled()
+  })
+})
+
+describe('useDetailModal', () => {
+  beforeEach(() => {
+    // The usePendingPolling describe leaves a vi.spyOn(window, 'setInterval') spy not fully restored by vi.clearAllMocks(); restore it here so waitFor works.
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('openDetail sets detailId and triggers a detail fetch from the API', async () => {
+    global.fetch.mockResolvedValueOnce(makeResponse({ id: 1, filename: 'cat.png', description: 'a cat' }))
+
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById: vi.fn(), refreshCollection: vi.fn() })
+    )
+
+    await act(async () => {
+      result.current.openDetail({ id: 1, description: 'preview' })
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.detail?.description).toBe('a cat')
+    expect(result.current.detailId).toBe(1)
+    expect(result.current.detailLoading).toBe(false)
+  })
+
+  it('loadDetail sets a fallback error when the API responds with !ok and no detail field', async () => {
+    global.fetch.mockResolvedValueOnce(makeResponse({}, false))
+
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById: vi.fn(), refreshCollection: vi.fn() })
+    )
+
+    await act(async () => {
+      result.current.openDetail({ id: 11, description: 'preview' })
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.detailError).toBe('Could not load meme details.')
+  })
+
+  it('loadDetail sets a fallback error when fetch throws without a message property', async () => {
+    global.fetch.mockRejectedValueOnce({})
+
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById: vi.fn(), refreshCollection: vi.fn() })
+    )
+
+    await act(async () => {
+      result.current.openDetail({ id: 12, description: 'preview' })
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.detailError).toBe('Could not load meme details.')
+  })
+
+  it('closeDetail resets all state to initial values', async () => {
+    global.fetch.mockResolvedValueOnce(makeResponse({ id: 2, filename: 'dog.png', description: 'a dog' }))
+
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById: vi.fn(), refreshCollection: vi.fn() })
+    )
+
+    act(() => {
+      result.current.openDetail({ id: 2, description: 'preview' })
+    })
+    await waitFor(() => {
+      expect(result.current.detailId).toBe(2)
+    })
+
+    act(() => {
+      result.current.closeDetail()
+    })
+
+    expect(result.current.detailId).toBeNull()
+    expect(result.current.detail).toBeNull()
+    expect(result.current.detailSaving).toBe(false)
+    expect(result.current.detailError).toBe('')
+  })
+
+  it('saveMemeDetails puts to the API and invokes onMemeChanged callbacks on success', async () => {
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ id: 3, description: 'loaded' }))
+      .mockResolvedValueOnce(makeResponse({ id: 3, description: 'saved' }))
+
+    const removePendingById = vi.fn()
+    const refreshCollection = vi.fn()
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById, refreshCollection })
+    )
+
+    await act(async () => {
+      result.current.openDetail({ id: 3, description: 'preview' })
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await result.current.saveMemeDetails({ description: 'saved' })
+    })
+
+    expect(result.current.detail?.description).toBe('saved')
+    expect(removePendingById).toHaveBeenCalledWith(3)
+    expect(refreshCollection).toHaveBeenCalled()
+    expect(result.current.detailSaving).toBe(false)
+  })
+
+  it('saveMemeDetails sets detailError and rethrows when the API responds with !ok', async () => {
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ id: 4, description: 'loaded' }))
+      .mockResolvedValueOnce(makeResponse({ detail: 'Save failed.' }, false))
+
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById: vi.fn(), refreshCollection: vi.fn() })
+    )
+
+    await act(async () => {
+      result.current.openDetail({ id: 4, description: 'preview' })
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    let caughtError
+    await act(async () => {
+      try {
+        await result.current.saveMemeDetails({ description: 'updated' })
+      } catch (err) {
+        caughtError = err
+      }
+    })
+
+    expect(caughtError).toBeDefined()
+    expect(result.current.detailError).toBe('Save failed.')
+  })
+
+  it('saveMemeDetails returns null without fetching when detailId is null', async () => {
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById: vi.fn(), refreshCollection: vi.fn() })
+    )
+
+    const value = await result.current.saveMemeDetails({ description: 'noop' })
+
+    expect(value).toBeNull()
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('deleteMeme calls DELETE and invokes onMemeChanged callbacks on success', async () => {
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ id: 5, description: 'loaded' }))
+      .mockResolvedValueOnce(makeResponse({}))
+
+    const removePendingById = vi.fn()
+    const refreshCollection = vi.fn()
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById, refreshCollection })
+    )
+
+    act(() => {
+      result.current.openDetail({ id: 5, description: 'preview' })
+    })
+    await waitFor(() => {
+      expect(result.current.detailId).toBe(5)
+    })
+
+    await act(async () => {
+      await result.current.deleteMeme(5)
+    })
+
+    expect(removePendingById).toHaveBeenCalledWith(5)
+    expect(refreshCollection).toHaveBeenCalled()
+    expect(result.current.detailId).toBeNull()
+  })
+
+  it('deleteMeme sets detailError when the API responds with !ok', async () => {
+    global.fetch
+      .mockResolvedValueOnce(makeResponse({ id: 6, description: 'loaded' }))
+      .mockResolvedValueOnce(makeResponse({ detail: 'Delete blocked.' }, false))
+
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById: vi.fn(), refreshCollection: vi.fn() })
+    )
+
+    act(() => {
+      result.current.openDetail({ id: 6, description: 'preview' })
+    })
+    await waitFor(() => {
+      expect(result.current.detailId).toBe(6)
+    })
+
+    await act(async () => {
+      await result.current.deleteMeme(6)
+    })
+
+    expect(result.current.detailError).toBe('Delete blocked.')
+  })
+
+  it('loadDetail ignores stale responses when detailId changes before the fetch resolves', async () => {
+    const firstFetch = deferred()
+    global.fetch
+      .mockImplementationOnce(() => firstFetch.promise)
+      .mockResolvedValueOnce(makeResponse({ id: 8, description: 'second loaded' }))
+
+    const { result } = renderHook(() =>
+      useDetailModal({ removePendingById: vi.fn(), refreshCollection: vi.fn() })
+    )
+
+    await act(async () => {
+      result.current.openDetail({ id: 7, description: 'first preview' })
+    })
+    await act(async () => {
+      result.current.openDetail({ id: 8, description: 'second preview' })
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.detail?.description).toBe('second loaded')
+    expect(result.current.detailId).toBe(8)
+
+    firstFetch.resolve(makeResponse({ id: 7, description: 'stale first' }))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.detail?.description).toBe('second loaded')
   })
 })
