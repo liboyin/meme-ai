@@ -1,6 +1,7 @@
 [project]
 name = "meme-organiser"
 version = "0.1.0"
+license = "AGPL-3.0-or-later"
 description = "Local-first meme library built with FastAPI, React, Vite, and SQLite"
 requires-python = ">=3.13"
 dependencies = [

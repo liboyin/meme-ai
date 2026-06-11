@@ -119,3 +119,9 @@ AI search first gathers a fuzzy shortlist, then asks the configured multimodal L
 
 - If `OPENAI_API_KEY` is missing, the backend still starts, uploads still work, and LLM-dependent features return a `503` response with the required `llm_unavailable` body.
 - Image fixtures under `assets/` cover valid uploads and validation failures for quick manual testing.
+
+## License
+
+Copyright (C) 2026 Libo Yin. Meme Organiser is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE) (`AGPL-3.0-or-later`).
+
+You may use, modify, and redistribute the software, but any distributed **or network-accessible** modified version must make its complete corresponding source available to users under the same license. Because Meme Organiser is intended to be served over a network, anyone hosting a modified copy should expose a link to the corresponding source (AGPLv3 §13); the canonical source lives at <https://github.com/liboyin/meme-ai>.
