@@ -15,8 +15,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
-          activate-environment: true
-          cache-dependency-glob: pyproject.toml
+          cache-dependency-glob: uv.lock
 
       - name: Install backend dependencies
         run: uv sync --group dev --locked
@@ -41,7 +40,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
